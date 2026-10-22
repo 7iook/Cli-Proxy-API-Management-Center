@@ -2310,5 +2310,8 @@
     "error": "Binding failed. Please start over.",
     "unsupported": "This backend does not support SIWC binding.",
     "expired": "The binding session expired. Please start over."
+  },
+  "quota_cache": {
+    "cached_at": "Cached at {{time}}"
   }
 }

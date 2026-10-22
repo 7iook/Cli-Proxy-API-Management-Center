@@ -3,6 +3,7 @@
  * Claude observations remain visible while refreshing or after a failed read.
  */
 
+import { QuotaCachedLabel } from './QuotaCachedLabel';
 import { useState, type CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import { IconRefreshCw } from '@/components/ui/icons';
@@ -175,6 +176,9 @@ export function QuotaCard(props: QuotaCardProps) {
           <div role="status" aria-busy="true" className={quotaClasses.quotaMessage}>
             {t(`${adapter.i18nPrefix}.loading`)}
           </div>
+        )}
+        {status === 'success' && (
+          <QuotaCachedLabel quota={quota} className={quotaClasses.quotaMessage} />
         )}
         {retainedClaudeUsage && quota && (
           <adapter.Body

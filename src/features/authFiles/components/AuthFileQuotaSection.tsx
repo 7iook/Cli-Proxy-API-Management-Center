@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import { QuotaCachedLabel } from '@/features/quota/components/QuotaCachedLabel';
 import { useTranslation } from 'react-i18next';
 import {
   captureQuotaCacheGeneration,
@@ -215,6 +216,9 @@ export function AuthFileQuotaSection(props: AuthFileQuotaSectionProps) {
         <div className={styles.quotaMessage}>{t(`${adapter.i18nPrefix}.idle`)}</div>
       ) : null}
       {retainedClaudeUsage && quota && <adapter.Body quota={quota} classes={compactQuotaClasses} />}
+      {quotaStatus === 'success' && (
+        <QuotaCachedLabel quota={quota} className={styles.quotaMessage} />
+      )}
       {(showRefreshQuotaAction || resetQuotaAction) && (
         <div className={styles.quotaCardActions}>
           {resetQuotaAction}

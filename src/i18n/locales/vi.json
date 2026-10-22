@@ -2316,5 +2316,8 @@
     "error": "Liên kết thất bại. Hãy bắt đầu lại.",
     "unsupported": "Máy chủ này không hỗ trợ liên kết SIWC.",
     "expired": "Phiên liên kết đã hết hạn. Hãy bắt đầu lại."
+  },
+  "quota_cache": {
+    "cached_at": "Đã lưu đệm lúc {{time}}"
   }
 }

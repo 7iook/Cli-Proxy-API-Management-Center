@@ -2337,5 +2337,8 @@
     "error": "綁定失敗，請重新開始。",
     "unsupported": "目前後端不支援 SIWC 綁定。",
     "expired": "綁定工作階段已過期，請重新開始。"
+  },
+  "quota_cache": {
+    "cached_at": "快取於 {{time}}"
   }
 }

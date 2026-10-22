@@ -3,6 +3,9 @@ import { createRoot } from 'react-dom/client';
 import '@/styles/global.scss';
 import { INLINE_LOGO_JPEG } from '@/assets/logoInline';
 import App from './App.tsx';
+import { installQuotaPersistence } from '@/stores/quotaPersistenceSync';
+
+installQuotaPersistence();
 
 document.title = 'CLI Proxy API Management Center';
 document.documentElement.setAttribute('translate', 'no');

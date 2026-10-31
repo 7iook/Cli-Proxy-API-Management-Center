@@ -409,11 +409,20 @@ describe('Claude usage snapshot rendering and retention', () => {
     expect(source).toContain("const showRefreshQuotaAction = quotaStatus !== 'idle';");
     expect(source).toContain('{showRefreshQuotaAction && (');
     expect(source).toContain('<div className={styles.quotaCardActions}>');
-    expect(source).toContain('onClick={() => void refreshQuotaForFile()}');
+    expect(source).toContain('onClick={refreshQuotaForFile}');
     expect(source).toContain("disabled={!canRefreshQuota || quotaStatus === 'loading'}");
     expect(source).toContain("loading={quotaStatus === 'loading'}");
     expect(source).toContain("{t('auth_files.quota_refresh_single')}");
-    expect(source).toContain("if (quota?.status === 'loading' || resettingQuota) return;");
+    // The shared refresh hook owns the in-flight guards; the section blocks it while resetting.
+    expect(source).toContain(
+      'useRefreshFileQuota(disableControls, resettingQuota ? cacheKey : null)'
+    );
+    const hookSource = readFileSync(
+      new URL('../src/features/quota/hooks/useRefreshFileQuota.ts', import.meta.url),
+      'utf8'
+    );
+    expect(hookSource).toContain("getQuotaMap(adapter)[cacheKey]?.status === 'loading'");
+    expect(hookSource).toContain('blockedCacheKey === cacheKey');
     expect(source).toContain(
       'const canRefreshQuota = !disableControls && !file.disabled && !resettingQuota;'
     );

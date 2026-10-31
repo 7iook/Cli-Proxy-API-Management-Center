@@ -2491,6 +2491,7 @@
     "resets": "resets {{relative}}",
     "no_data": "No data",
     "loading": "Loading…",
-    "load_failed": "Failed to load"
+    "load_failed": "Failed to load",
+    "remaining_aria": "{{label}} quota remaining"
   }
 }

@@ -2489,6 +2489,7 @@
     "resets": "{{relative}}重置",
     "no_data": "暂无数据",
     "loading": "加载中…",
-    "load_failed": "加载失败"
+    "load_failed": "加载失败",
+    "remaining_aria": "{{label}} 剩余额度"
   }
 }

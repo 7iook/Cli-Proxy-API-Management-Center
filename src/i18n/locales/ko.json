@@ -2491,6 +2491,7 @@
     "resets": "{{relative}} 초기화",
     "no_data": "데이터 없음",
     "loading": "불러오는 중…",
-    "load_failed": "불러오기 실패"
+    "load_failed": "불러오기 실패",
+    "remaining_aria": "{{label}} 남은 할당량"
   }
 }

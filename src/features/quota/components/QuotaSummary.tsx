@@ -1,6 +1,7 @@
 /**
- * Compact quota: the 5-hour and weekly windows as two dense rows
- * ("5h  72% · resets in 2 hours"). `QuotaSummaryRows` renders from a quota
+ * Compact quota: the 5-hour and weekly windows as two dense rows. Each row
+ * is a label, a thin remaining-quota bar and the remaining percent, with the
+ * reset time in small type under the bar ("5h ▬▬▬▬▭ 72% / resets in 2h"). `QuotaSummaryRows` renders from a quota
  * state; `QuotaSummary` binds it to the store and adds a refresh button.
  */
 
@@ -14,6 +15,7 @@ import type { QuotaProviderType } from '../providers/types';
 import { resolveQuotaResetKey, resolveQuotaSortKey, type QuotaWindowKind } from '../quotaSortKey';
 import { useFileQuotaState } from '../hooks/useFileQuotaState';
 import { useRefreshFileQuota } from '../hooks/useRefreshFileQuota';
+import { summaryRemainingTone } from './quotaSummaryTone';
 import styles from './QuotaSummary.module.scss';
 
 const WINDOWS: ReadonlyArray<{ kind: QuotaWindowKind; labelKey: string }> = [
@@ -21,8 +23,11 @@ const WINDOWS: ReadonlyArray<{ kind: QuotaWindowKind; labelKey: string }> = [
   { kind: 'weekly', labelKey: 'quota_summary.weekly' },
 ];
 
-/** Remaining percent at or below this reads as nearly exhausted. */
-const LOW_REMAINING_PERCENT = 15;
+const TONE_CLASSES = {
+  high: { fill: styles.fillHigh, percent: undefined },
+  medium: { fill: styles.fillMedium, percent: undefined },
+  low: { fill: styles.fillLow, percent: styles.percentLow },
+} as const;
 
 export interface QuotaSummaryRowsProps {
   type: QuotaProviderType;
@@ -52,32 +57,39 @@ export function QuotaSummaryRows({ type, quota }: QuotaSummaryRowsProps) {
 
   return (
     <div className={styles.rows}>
-      {rows.map(({ kind, label, remaining, reset }) => (
-        <div key={kind} className={styles.row}>
-          <span className={styles.label}>{label}</span>
-          {remaining.status === 'value' ? (
-            <>
-              <span
-                className={`${styles.percent} ${
-                  remaining.remaining <= LOW_REMAINING_PERCENT ? styles.percentLow : ''
-                }`}
-              >
-                {Math.round(remaining.remaining)}%
-              </span>
-              {reset.status === 'value' && (
-                <span className={styles.reset}>
-                  {reset.estimated ? '≈ ' : ''}
-                  {t('quota_summary.resets', {
-                    relative: formatRelativeInstant(reset.atMs, nowMs, i18n.language),
-                  })}
-                </span>
+      {rows.map(({ kind, label, remaining, reset }) => {
+        const value = remaining.status === 'value' ? Math.round(remaining.remaining) : null;
+        const clamped = value === null ? 0 : Math.min(100, Math.max(0, value));
+        const tone = value === null ? null : TONE_CLASSES[summaryRemainingTone(value)];
+        return (
+          <div key={kind} className={styles.row} data-window={kind}>
+            <span className={styles.label}>{label}</span>
+            <span
+              className={styles.track}
+              role="progressbar"
+              aria-label={t('quota_summary.remaining_aria', { label })}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={value ?? undefined}
+            >
+              {value !== null && (
+                <span className={`${styles.fill} ${tone?.fill ?? ''}`} style={{ width: `${clamped}%` }} />
               )}
-            </>
-          ) : (
-            <span className={styles.percent}>—</span>
-          )}
-        </div>
-      ))}
+            </span>
+            <span className={`${styles.percent} ${tone?.percent ?? ''}`}>
+              {value === null ? '—' : `${value}%`}
+            </span>
+            {value !== null && reset.status === 'value' && (
+              <span className={styles.reset}>
+                {reset.estimated ? '≈ ' : ''}
+                {t('quota_summary.resets', {
+                  relative: formatRelativeInstant(reset.atMs, nowMs, i18n.language),
+                })}
+              </span>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

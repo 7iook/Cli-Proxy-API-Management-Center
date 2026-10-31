@@ -2517,6 +2517,7 @@
     "resets": "{{relative}}重置",
     "no_data": "暫無資料",
     "loading": "載入中…",
-    "load_failed": "載入失敗"
+    "load_failed": "載入失敗",
+    "remaining_aria": "{{label}} 剩餘額度"
   }
 }

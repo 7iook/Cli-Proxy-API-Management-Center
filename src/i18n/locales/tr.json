@@ -2491,6 +2491,7 @@
     "resets": "{{relative}} sıfırlanır",
     "no_data": "Veri yok",
     "loading": "Yükleniyor…",
-    "load_failed": "Yüklenemedi"
+    "load_failed": "Yüklenemedi",
+    "remaining_aria": "{{label}} kalan kota"
   }
 }

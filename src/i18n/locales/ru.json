@@ -2485,6 +2485,7 @@
     "resets": "сброс {{relative}}",
     "no_data": "Нет данных",
     "loading": "Загрузка…",
-    "load_failed": "Не удалось загрузить"
+    "load_failed": "Не удалось загрузить",
+    "remaining_aria": "{{label}}: оставшаяся квота"
   }
 }

@@ -2497,6 +2497,7 @@
     "resets": "đặt lại {{relative}}",
     "no_data": "Chưa có dữ liệu",
     "loading": "Đang tải…",
-    "load_failed": "Tải thất bại"
+    "load_failed": "Tải thất bại",
+    "remaining_aria": "{{label}} hạn mức còn lại"
   }
 }

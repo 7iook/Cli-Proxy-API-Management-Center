@@ -440,7 +440,28 @@
     "quota_refresh_single": "Kotayı Yenile",
     "quota_refresh_hint": "Yalnızca Bu Kimlik Bilgisinin Kotasını Yenile",
     "quota_refresh_success": "“{{name}}” için Kota Yenilendi",
-    "quota_refresh_failed": "“{{name}}” için Kota Yenilenemedi: {{message}}"
+    "quota_refresh_failed": "“{{name}}” için Kota Yenilenemedi: {{message}}",
+    "sort_fiveHourDesc": "5s kota: en çok kalan",
+    "sort_fiveHourAsc": "5s kota: en az kalan",
+    "sort_weeklyDesc": "Haftalık kota: en çok kalan",
+    "sort_weeklyAsc": "Haftalık kota: en az kalan",
+    "sort_custom": "Özel sıralama",
+    "quota_sort_missing": "{{count}} hesabın kota verisi yok",
+    "quota_sort_load": "Kotayı yükle",
+    "group_assign_success": "{{count}} hesap güncellendi",
+    "group_assign_partial": "{{success}} güncellendi, {{failed}} başarısız",
+    "group_assign_failed": "Grup değiştirilemedi",
+    "order_save_partial": "Sıra {{success}} için kaydedildi, {{failed}} için başarısız",
+    "order_label": "Özel sıralama",
+    "order_top": "En üste taşı",
+    "order_up": "Yukarı taşı",
+    "order_down": "Aşağı taşı",
+    "order_bottom": "En alta taşı",
+    "order_switched_custom": "Özel sıralamaya geçildi",
+    "batch_group": "Grup",
+    "batch_group_remove": "Gruptan çıkar",
+    "batch_move_top": "En üste taşı",
+    "delete_disabled_group_filter": "Toplu silme için grup filtresini temizleyin"
   },
   "antigravity_subscription": {
     "plan_unknown": "Bilinmiyor",
@@ -1632,7 +1653,11 @@
     "weekday_wed": "Çar",
     "weekday_thu": "Per",
     "weekday_fri": "Cum",
-    "weekday_sat": "Cmt"
+    "weekday_sat": "Cmt",
+    "sort_fiveHourDesc": "5s kota: en çok kalan",
+    "sort_fiveHourAsc": "5s kota: en az kalan",
+    "sort_weeklyDesc": "Haftalık kota: en çok kalan",
+    "sort_weeklyAsc": "Haftalık kota: en az kalan"
   },
   "routing": {
     "title": "Yönlendirme",
@@ -2419,5 +2444,32 @@
   "quota_cache": {
     "cached_at": "Önbellekten: {{time}}",
     "passive_at": "{{ago}} · gerçek isteklerden"
+  },
+  "account_groups": {
+    "filter_label": "Hesap grupları",
+    "filter_all": "Tümü",
+    "filter_ungrouped": "Grupsuz",
+    "manage": "Grupları yönet",
+    "manager_title": "Grupları yönet",
+    "manager_hint": "Gruplar yalnızca bu paneli düzenler. İstek yönlendirmesini veya kimlik bilgisi seçimini asla etkilemez.",
+    "manager_empty": "Henüz grup yok. Hesapları düzenlemeye başlamak için bir grup ekleyin.",
+    "name_label": "Grup adı",
+    "name_placeholder": "Grup adı",
+    "color_label": "Grup rengi",
+    "color_presets": "Hazır renkler",
+    "move_up": "Yukarı taşı",
+    "move_down": "Aşağı taşı",
+    "delete": "Grubu sil",
+    "delete_confirm": "Hesaplar silinmez, yalnızca grupsuz olur. Bu grup silinsin mi?",
+    "add": "Grup ekle",
+    "error_empty": "Bir grup adı girin.",
+    "error_too_long": "En fazla {{max}} karakter kullanın.",
+    "error_duplicate": "Grup adları benzersiz olmalıdır.",
+    "error_color": "#7C3AED gibi bir renk kullanın.",
+    "error_too_many": "En fazla {{max}} gruba izin verilir.",
+    "save_failed": "Gruplar kaydedilemedi",
+    "save_success": "Gruplar kaydedildi",
+    "card_ungrouped": "Grup yok",
+    "card_group_label": "{{name}} grubu"
   }
 }

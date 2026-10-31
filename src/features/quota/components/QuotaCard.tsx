@@ -7,12 +7,14 @@
  */
 
 import { QuotaCachedLabel } from './QuotaCachedLabel';
+import { QuotaSummaryRows } from './QuotaSummary';
 import { useState, type CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import { IconRefreshCw } from '@/components/ui/icons';
 import type { ClaudeQuotaState, ResolvedTheme } from '@/types';
 import { resolveQuotaErrorMessage } from '@/utils/quota';
 import { getQuotaDisplayName } from '@/utils/quota/identity';
+import { maskEmailsIn } from '@/utils/maskEmail';
 import {
   getAuthFileIcon,
   getThemeSurfaceIconBackground,
@@ -46,6 +48,9 @@ export type QuotaCardProps = {
   resetting: boolean;
   /** Initial cascade delay; null disables entrance motion for later mounts. */
   entranceDelayMs?: number | null;
+  /** Dense view: the quota body becomes the two-row summary. */
+  compact?: boolean;
+  maskEmail?: boolean;
   onRefresh: () => void;
   onReset: () => void;
 };
@@ -58,6 +63,8 @@ export function QuotaCard(props: QuotaCardProps) {
     canRefresh,
     resetting,
     entranceDelayMs,
+    compact = false,
+    maskEmail: shouldMaskEmail = false,
     onRefresh,
     onReset,
   } = props;
@@ -66,7 +73,8 @@ export function QuotaCard(props: QuotaCardProps) {
   const file = entry.file;
   const retainedClaudeUsage =
     entry.type === 'claude' && hasClaudeUsageData(quota as ClaudeQuotaState | undefined);
-  const displayName = getQuotaDisplayName(file);
+  const rawDisplayName = getQuotaDisplayName(file);
+  const displayName = shouldMaskEmail ? maskEmailsIn(rawDisplayName, [file.email]) : rawDisplayName;
 
   // Capture the entrance delay only at mount, without a render-time ref read.
   const [mountEntranceDelayMs] = useState<number | null>(entranceDelayMs ?? null);
@@ -135,6 +143,7 @@ export function QuotaCard(props: QuotaCardProps) {
     <article
       className={[
         styles.card,
+        compact ? styles.cardCompact : undefined,
         TIER_CLASS[tier],
         mountEntranceDelayMs === null ? undefined : styles.cardEnter,
       ]
@@ -189,6 +198,8 @@ export function QuotaCard(props: QuotaCardProps) {
           <div className={styles.errorStrip} role="alert">
             {t(`${adapter.i18nPrefix}.load_failed`, { message: errorMessage })}
           </div>
+        ) : compact ? (
+          <QuotaSummaryRows type={entry.type} quota={quota} />
         ) : quota && !retainedClaudeUsage ? (
           <adapter.Body
             quota={quota}
@@ -199,15 +210,15 @@ export function QuotaCard(props: QuotaCardProps) {
         ) : !retainedClaudeUsage ? (
           <div className={styles.idleHint}>{t(`${adapter.i18nPrefix}.idle`)}</div>
         ) : null}
-        {loading && retainedClaudeUsage && (
+        {!compact && loading && retainedClaudeUsage && (
           <div role="status" aria-busy="true" className={quotaClasses.quotaMessage}>
             {t(`${adapter.i18nPrefix}.loading`)}
           </div>
         )}
-        {status === 'success' && (
+        {!compact && status === 'success' && (
           <QuotaCachedLabel quota={quota} className={quotaClasses.quotaMessage} />
         )}
-        {retainedClaudeUsage && quota && (
+        {!compact && retainedClaudeUsage && quota && (
           <adapter.Body
             quota={quota}
             classes={quotaClasses}

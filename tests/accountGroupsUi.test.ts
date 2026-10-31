@@ -57,11 +57,13 @@ describe('account group UI smoke', () => {
       [
         'auth_files',
         (key) =>
-          /^(sort_(fiveHour|weekly|custom)|quota_sort_|group_assign_|order_|batch_group|batch_move_top|delete_disabled_group)/.test(
+          /^(quota_sort_|group_assign_|order_|batch_group|batch_move_top|delete_disabled_group)/.test(
             key
           ),
       ],
-      ['quota_management', (key) => /^sort_(fiveHour|weekly)/.test(key)],
+      ['sort_control', () => true],
+      ['display_options', () => true],
+      ['quota_summary', () => true],
     ];
     for (const lang of ['zh-CN', 'zh-TW', 'ru', 'ko', 'vi']) {
       const other = load(lang);

@@ -225,7 +225,10 @@ const collectCandidates = (provider: QuotaProviderType, quota: object): Candidat
 };
 
 /** A window whose reset instant has passed is full again. */
-const toSortKey = (candidate: Candidate, nowMs: number): QuotaSortKey => {
+const toValueKey = (
+  candidate: Candidate,
+  nowMs: number
+): Extract<QuotaSortKey, { status: 'value' }> => {
   const reset = candidate.resetAtMs !== null && candidate.resetAtMs <= nowMs;
   return {
     status: 'value',
@@ -246,12 +249,13 @@ const compareValueKeys = (
   return a.resetAtMs - b.resetAtMs;
 };
 
-export function resolveQuotaSortKey(
+/** Picks the window a sort or summary reads: account-level id first, else the bottleneck. */
+function selectCandidate(
   provider: QuotaProviderType | null,
   quota: unknown,
   kind: QuotaWindowKind,
   nowMs: number
-): QuotaSortKey {
+): { status: 'value'; candidate: Candidate } | { status: 'missing' } | { status: 'na' } {
   if (provider === null) return { status: 'na' };
   if (!quota || typeof quota !== 'object') return { status: 'missing' };
   if ((quota as { status?: unknown }).status !== 'success') return { status: 'missing' };
@@ -266,27 +270,100 @@ export function resolveQuotaSortKey(
     preferredId === undefined
       ? undefined
       : candidates.find((candidate) => candidate.id === preferredId);
-  if (preferred) return toSortKey(preferred, nowMs);
+  if (preferred) return { status: 'value', candidate: preferred };
 
   // No account-level window: the bottleneck (lowest effective remaining) decides.
-  const keys = candidates.map(
-    (candidate) => toSortKey(candidate, nowMs) as Extract<QuotaSortKey, { status: 'value' }>
+  const candidate = candidates.reduce((best, current) =>
+    compareValueKeys(toValueKey(current, nowMs), toValueKey(best, nowMs)) < 0 ? current : best
   );
-  return keys.reduce((best, key) => (compareValueKeys(key, best) < 0 ? key : best));
+  return { status: 'value', candidate };
+}
+
+export function resolveQuotaSortKey(
+  provider: QuotaProviderType | null,
+  quota: unknown,
+  kind: QuotaWindowKind,
+  nowMs: number
+): QuotaSortKey {
+  const selected = selectCandidate(provider, quota, kind, nowMs);
+  return selected.status === 'value' ? toValueKey(selected.candidate, nowMs) : selected;
 }
 
 /**
- * Orders items by quota key. Values come first (by remaining, ties by earlier
- * reset), then `missing`, then `na` — those two stay at the bottom whatever the
- * direction. Stable; returns a new array.
+ * When the selected window next resets.
+ *
+ * A reported instant that has already passed is projected forward by whole
+ * periods (`estimated`). A window with no usable instant, no period, or an
+ * instant further out than two periods cannot be trusted and is `anomalous`.
  */
-export function sortByQuotaKey<T>(
+export type QuotaResetKey =
+  | { status: 'value'; atMs: number; estimated: boolean }
+  | { status: 'anomalous' }
+  | { status: 'missing' }
+  | { status: 'na' };
+
+export function resolveQuotaResetKey(
+  provider: QuotaProviderType | null,
+  quota: unknown,
+  kind: QuotaWindowKind,
+  nowMs: number
+): QuotaResetKey {
+  const selected = selectCandidate(provider, quota, kind, nowMs);
+  if (selected.status !== 'value') return selected;
+
+  const { resetAtMs, periodHours } = selected.candidate;
+  if (resetAtMs === null || !isFiniteNumber(periodHours) || periodHours <= 0) {
+    return { status: 'anomalous' };
+  }
+  const periodMs = periodHours * 3_600_000;
+  if (resetAtMs > nowMs + 2 * periodMs) return { status: 'anomalous' };
+  if (resetAtMs > nowMs) return { status: 'value', atMs: resetAtMs, estimated: false };
+
+  const periods = Math.max(1, Math.ceil((nowMs - resetAtMs) / periodMs));
+  return { status: 'value', atMs: resetAtMs + periods * periodMs, estimated: true };
+}
+
+/** Which number a ranked sort reads: remaining percent or time of the next reset. */
+export type QuotaRankMetric = 'remaining' | 'reset';
+
+/**
+ * Numeric sort key shared by every quota ordering. Values come first, then
+ * `missing` (not loaded / failed), then `na` (no such window, anomalous).
+ */
+export type QuotaRankKey =
+  { status: 'value'; value: number; tiebreak: number } | { status: 'missing' } | { status: 'na' };
+
+export function resolveQuotaRank(
+  provider: QuotaProviderType | null,
+  quota: unknown,
+  plan: { kind: QuotaWindowKind; metric: QuotaRankMetric },
+  nowMs: number
+): QuotaRankKey {
+  if (plan.metric === 'reset') {
+    const key = resolveQuotaResetKey(provider, quota, plan.kind, nowMs);
+    if (key.status === 'value') return { status: 'value', value: key.atMs, tiebreak: 0 };
+    return key.status === 'missing' ? { status: 'missing' } : { status: 'na' };
+  }
+  const key = resolveQuotaSortKey(provider, quota, plan.kind, nowMs);
+  // Ties on remaining: earlier reset first; an unknown reset sorts after a known one.
+  return key.status === 'value'
+    ? { status: 'value', value: key.remaining, tiebreak: key.resetAtMs ?? Number.MAX_SAFE_INTEGER }
+    : key;
+}
+
+/**
+ * Orders items by rank key. Values first (by value in the given direction,
+ * ties by tiebreak ascending whatever the direction), then `missing`, then
+ * `na` — those two stay at the bottom in both directions. Stable; returns a
+ * new array.
+ */
+export function sortByRankKey<T>(
   items: readonly T[],
-  getKey: (item: T) => QuotaSortKey,
+  getKey: (item: T) => QuotaRankKey,
   direction: QuotaSortDirection
 ): T[] {
   const sign = direction === 'asc' ? 1 : -1;
-  const rank = (key: QuotaSortKey) =>
+  const rank = (key: QuotaRankKey) =>
     key.status === 'value' ? 0 : key.status === 'missing' ? 1 : 2;
 
   return items
@@ -295,12 +372,8 @@ export function sortByQuotaKey<T>(
       const rankDiff = rank(a.key) - rank(b.key);
       if (rankDiff !== 0) return rankDiff;
       if (a.key.status === 'value' && b.key.status === 'value') {
-        if (a.key.remaining !== b.key.remaining) {
-          return sign * (a.key.remaining - b.key.remaining);
-        }
-        // Ties: earlier reset first, regardless of direction.
-        const resetDiff = compareValueKeys(a.key, b.key);
-        if (resetDiff !== 0) return resetDiff;
+        if (a.key.value !== b.key.value) return sign * (a.key.value - b.key.value);
+        if (a.key.tiebreak !== b.key.tiebreak) return a.key.tiebreak - b.key.tiebreak;
       }
       return a.index - b.index;
     })

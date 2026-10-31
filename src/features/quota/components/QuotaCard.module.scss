@@ -22,6 +22,12 @@
     box-shadow var(--dur-hover, 200ms) var(--ease-out-strong, ease-out);
 }
 
+/* Compact view: tighter padding and gaps around the two-row summary. */
+.cardCompact {
+  gap: 8px;
+  padding: 11px 13px;
+}
+
 @media (hover: hover) and (pointer: fine) {
   .card:hover {
     transform: translateY(-2px);

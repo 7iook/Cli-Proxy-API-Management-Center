@@ -1,13 +1,18 @@
 import { describe, expect, test } from 'bun:test';
 import {
   resolveQuotaSortKey,
-  sortByQuotaKey,
+  resolveQuotaRank,
+  resolveQuotaResetKey,
+  sortByRankKey,
+  type QuotaRankKey,
   type QuotaSortKey,
 } from '@/features/quota/quotaSortKey';
 
 const NOW = 1_000_000_000_000;
 const HOUR = 3_600_000;
 const FUTURE = NOW + 2 * HOUR;
+
+const rank = (value: number, tiebreak = 0): QuotaRankKey => ({ status: 'value', value, tiebreak });
 
 const value = (
   remaining: number,
@@ -290,24 +295,24 @@ describe('other providers', () => {
   });
 });
 
-describe('sortByQuotaKey', () => {
+describe('sortByRankKey', () => {
   interface Row {
     id: string;
-    key: QuotaSortKey;
+    key: QuotaRankKey;
   }
   const rows: Row[] = [
     { id: 'na1', key: { status: 'na' } },
-    { id: 'v50', key: value(50) },
+    { id: 'v50', key: rank(50) },
     { id: 'miss1', key: { status: 'missing' } },
-    { id: 'v10', key: value(10) },
-    { id: 'v90', key: value(90) },
+    { id: 'v10', key: rank(10) },
+    { id: 'v90', key: rank(90) },
     { id: 'miss2', key: { status: 'missing' } },
     { id: 'na2', key: { status: 'na' } },
   ];
   const ids = (list: Row[]) => list.map((row) => row.id);
 
   test('ascending keeps missing then na at the bottom', () => {
-    expect(ids(sortByQuotaKey(rows, (r) => r.key, 'asc'))).toEqual([
+    expect(ids(sortByRankKey(rows, (r) => r.key, 'asc'))).toEqual([
       'v10',
       'v50',
       'v90',
@@ -319,7 +324,7 @@ describe('sortByQuotaKey', () => {
   });
 
   test('descending keeps missing then na at the bottom', () => {
-    expect(ids(sortByQuotaKey(rows, (r) => r.key, 'desc'))).toEqual([
+    expect(ids(sortByRankKey(rows, (r) => r.key, 'desc'))).toEqual([
       'v90',
       'v50',
       'v10',
@@ -330,22 +335,142 @@ describe('sortByQuotaKey', () => {
     ]);
   });
 
-  test('ties break by earlier reset, null last, then original index', () => {
+  test('ties break by tiebreak, unknown last, then original index', () => {
     const tied: Row[] = [
-      { id: 'null', key: value(50, null) },
-      { id: 'late', key: value(50, FUTURE + 10) },
-      { id: 'early', key: value(50, FUTURE) },
-      { id: 'early2', key: value(50, FUTURE) },
+      { id: 'null', key: rank(50, Number.MAX_SAFE_INTEGER) },
+      { id: 'late', key: rank(50, FUTURE + 10) },
+      { id: 'early', key: rank(50, FUTURE) },
+      { id: 'early2', key: rank(50, FUTURE) },
     ];
     const expected = ['early', 'early2', 'late', 'null'];
-    expect(ids(sortByQuotaKey(tied, (r) => r.key, 'asc'))).toEqual(expected);
-    expect(ids(sortByQuotaKey(tied, (r) => r.key, 'desc'))).toEqual(expected);
+    expect(ids(sortByRankKey(tied, (r) => r.key, 'asc'))).toEqual(expected);
+    expect(ids(sortByRankKey(tied, (r) => r.key, 'desc'))).toEqual(expected);
   });
 
   test('returns a new array and leaves input untouched', () => {
     const input = [...rows];
-    const out = sortByQuotaKey(input, (r) => r.key, 'asc');
+    const out = sortByRankKey(input, (r) => r.key, 'asc');
     expect(out).not.toBe(input);
     expect(input).toEqual(rows);
+  });
+});
+
+describe('resolveQuotaResetKey', () => {
+  const DAY = 24 * HOUR;
+  const codex = (...windows: ReturnType<typeof win>[]) => ({ status: 'success', windows });
+  const weekly = (resetAtMs: number | null) => codex(win('weekly', 10, 168, resetAtMs as number));
+
+  test('returns the next weekly reset instant', () => {
+    expect(resolveQuotaResetKey('codex', weekly(NOW + DAY), 'weekly', NOW)).toEqual({
+      status: 'value',
+      atMs: NOW + DAY,
+      estimated: false,
+    });
+  });
+
+  test('projects a past reset forward by whole periods', () => {
+    const key = resolveQuotaResetKey('codex', weekly(NOW - 8 * DAY), 'weekly', NOW);
+    expect(key).toEqual({ status: 'value', atMs: NOW - 8 * DAY + 14 * DAY, estimated: true });
+    const exactlyNow = resolveQuotaResetKey('codex', weekly(NOW), 'weekly', NOW);
+    expect(exactlyNow).toEqual({ status: 'value', atMs: NOW + 7 * DAY, estimated: true });
+  });
+
+  test('missing instants and instants beyond two periods are anomalous', () => {
+    const noInstant = {
+      status: 'success',
+      windows: [{ id: 'weekly', label: 'w', usedPercent: 10, periodHours: 168, resetAtMs: null }],
+    };
+    expect(resolveQuotaResetKey('codex', noInstant, 'weekly', NOW)).toEqual({
+      status: 'anomalous',
+    });
+    expect(resolveQuotaResetKey('codex', weekly(NOW + 15 * DAY), 'weekly', NOW)).toEqual({
+      status: 'anomalous',
+    });
+    expect(resolveQuotaResetKey('codex', weekly(NOW + 14 * DAY), 'weekly', NOW).status).toBe(
+      'value'
+    );
+  });
+
+  test('not loaded, failed and windowless states mirror the remaining key', () => {
+    expect(resolveQuotaResetKey('codex', undefined, 'weekly', NOW)).toEqual({ status: 'missing' });
+    expect(resolveQuotaResetKey('codex', { status: 'error' }, 'weekly', NOW)).toEqual({
+      status: 'missing',
+    });
+    expect(resolveQuotaResetKey('codex', codex(win('five-hour', 10, 5)), 'weekly', NOW)).toEqual({
+      status: 'na',
+    });
+    expect(resolveQuotaResetKey(null, undefined, 'weekly', NOW)).toEqual({ status: 'na' });
+  });
+
+  test('uses the same preferred window as the remaining key', () => {
+    const quota = codex(
+      win('weekly', 10, 168, NOW + 5 * DAY),
+      win('model-weekly', 90, 168, NOW + DAY)
+    );
+    expect(resolveQuotaResetKey('codex', quota, 'weekly', NOW)).toMatchObject({
+      atMs: NOW + 5 * DAY,
+    });
+    const claude = {
+      status: 'success',
+      windows: [
+        win('seven-day', 10, 168, NOW + 6 * DAY),
+        win('seven-day-opus', 95, 168, NOW + DAY),
+      ],
+    };
+    expect(resolveQuotaResetKey('claude', claude, 'weekly', NOW)).toMatchObject({
+      atMs: NOW + 6 * DAY,
+    });
+  });
+});
+
+describe('weekly reset ordering', () => {
+  const DAY = 24 * HOUR;
+  const quotaWithReset = (offsetMs: number | null, loaded = true) =>
+    loaded
+      ? {
+          status: 'success',
+          windows: [
+            {
+              id: 'weekly',
+              label: 'w',
+              usedPercent: 10,
+              resetLabel: '',
+              resetAtMs: offsetMs === null ? null : NOW + offsetMs,
+              periodHours: 168,
+            },
+          ],
+        }
+      : { status: 'error' };
+  const items = [
+    { id: 'anomalous', quota: quotaWithReset(null) },
+    { id: 'three', quota: quotaWithReset(3 * DAY) },
+    { id: 'missing', quota: quotaWithReset(0, false) },
+    { id: 'one', quota: quotaWithReset(DAY) },
+    { id: 'none', quota: { status: 'success', windows: [] } },
+  ];
+  const plan = { kind: 'weekly', metric: 'reset' } as const;
+  const order = (direction: 'asc' | 'desc') =>
+    sortByRankKey(items, (item) => resolveQuotaRank('codex', item.quota, plan, NOW), direction).map(
+      (item) => item.id
+    );
+
+  test('sooner reset first ascending, later first descending', () => {
+    expect(order('asc').slice(0, 2)).toEqual(['one', 'three']);
+    expect(order('desc').slice(0, 2)).toEqual(['three', 'one']);
+  });
+
+  test('missing, then anomalous and windowless entries stay at the bottom in both directions', () => {
+    expect(order('asc').slice(2)).toEqual(['missing', 'anomalous', 'none']);
+    expect(order('desc').slice(2)).toEqual(['missing', 'anomalous', 'none']);
+  });
+
+  test('remaining metric ranks by remaining percent with reset as tiebreak', () => {
+    const rank = resolveQuotaRank(
+      'codex',
+      quotaWithReset(DAY),
+      { kind: 'weekly', metric: 'remaining' },
+      NOW
+    );
+    expect(rank).toEqual({ status: 'value', value: 90, tiebreak: NOW + DAY });
   });
 });

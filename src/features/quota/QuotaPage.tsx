@@ -11,15 +11,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { authFilesApi } from '@/services/api';
+import { DisplayOptionsPopover } from '@/components/common/DisplayOptionsPopover';
+import { SortControl } from '@/components/common/SortControl';
+import { useSortFieldOptions } from '@/components/common/useSortFieldOptions';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { IconSearch, IconX } from '@/components/ui/icons';
-import { Select } from '@/components/ui/Select';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { useNow } from '@/hooks/useNow';
 import { useRevealGroup } from '@/hooks/motion';
-import { useAccountGroupsStore, useAuthStore, useQuotaStore, useThemeStore } from '@/stores';
+import {
+  useAccountGroupsStore,
+  useAuthStore,
+  usePanelPreferencesStore,
+  useQuotaStore,
+  useThemeStore,
+} from '@/stores';
+import { maskEmailsIn } from '@/utils/maskEmail';
+import { QUOTA_SORT_FIELDS, type QuotaSort } from '@/features/preferences/schema';
 import type { AuthFileItem, ResolvedTheme } from '@/types';
 import { getQuotaCacheKey } from '@/utils/quota/identity';
 import { ProviderTabs } from '@/features/authFiles/components/ProviderTabs';
@@ -37,10 +47,8 @@ import { QuotaTimeline } from './components/QuotaTimeline';
 import {
   CARD_ENTRANCE_BUDGET_MS,
   QUOTA_PAGE_SIZE,
-  QUOTA_SORT_MODES,
   QUOTA_TAB_ORDER,
-  getQuotaRemainingSortSpec,
-  type QuotaSortMode,
+  getQuotaRankPlan,
   type QuotaTabId,
 } from './constants';
 import {
@@ -51,28 +59,21 @@ import {
   filterEntriesBySearch,
   paginate,
   sortQuotaEntries,
-  sortQuotaEntriesByRemaining,
+  sortQuotaEntriesByRank,
   type QuotaFileEntry,
 } from './logic';
 import { nextRecoveryMs } from './resetSchedule';
-import { resolveQuotaSortKey } from './quotaSortKey';
+import { resolveQuotaRank } from './quotaSortKey';
 import { QUOTA_ADAPTERS, getQuotaSetter, type QuotaCardState } from './providers';
 import type { QuotaProviderType } from './providers/types';
 import { useDevinQuotaAutoLoad } from './providers/devin/useDevinQuotaAutoLoad';
 import { useQuotaActions } from './hooks/useQuotaActions';
 import { useQuotaBatchLoader } from './hooks/useQuotaBatchLoader';
 import { useQuotaSortNow } from './hooks/useQuotaSortNow';
-import { readQuotaUiState, writeQuotaUiState } from './uiState';
 import styles from './QuotaPage.module.scss';
 
 const TAB_IDS: string[] = ['all', ...QUOTA_TAB_ORDER];
 const SKELETON_CARD_COUNT = 6;
-
-/**
- * Existing providers display filenames; Devin's card and timeline share an
- * identity-aware display label. Keep the filename fallback stable for memoization.
- */
-const displayNameFor = (name: string) => name;
 
 export function QuotaPage() {
   const { t } = useTranslation();
@@ -82,13 +83,13 @@ export function QuotaPage() {
   const [files, setFiles] = useState<AuthFileItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [tab, setTab] = useState<QuotaTabId>(() => readQuotaUiState()?.tab ?? 'all');
-  const [sortMode, setSortMode] = useState<QuotaSortMode>(
-    () => readQuotaUiState()?.sortMode ?? 'default'
-  );
-  const [groupFilter, setGroupFilter] = useState<string>(
-    () => readQuotaUiState()?.groupFilter ?? GROUP_FILTER_ALL
-  );
+  const quotaPrefs = usePanelPreferencesStore((state) => state.prefs.quota);
+  const compactMode = usePanelPreferencesStore((state) => state.prefs.display.compact);
+  const maskEmail = usePanelPreferencesStore((state) => state.prefs.display.maskEmail);
+  const updatePrefs = usePanelPreferencesStore((state) => state.update);
+  const tab = quotaPrefs.tab as QuotaTabId;
+  const sort = quotaPrefs.sort;
+  const groupFilter = quotaPrefs.groupFilter;
   const [groupManagerOpen, setGroupManagerOpen] = useState(false);
   const groups = useAccountGroupsStore((state) => state.groups);
   const groupsSupported = useAccountGroupsStore((state) => state.supported);
@@ -198,8 +199,8 @@ export function QuotaPage() {
 
   // 只在「最快恢复优先」下订阅分钟时钟。默认序下不门控的话，pageItems 每分钟
   // 换一次身份，会反复空转下面那个「刷新全部」的 loading 下降沿 effect。
-  const tick = useNow(sortMode === 'soonest');
-  const sortNow = sortMode === 'soonest' ? tick : 0;
+  const tick = useNow(sort.field === 'soonest');
+  const sortNow = sort.field === 'soonest' ? tick : 0;
 
   const entries = useMemo(() => classifyQuotaFiles(files), [files]);
   const tabCounts = useMemo(() => buildTabCounts(entries), [entries]);
@@ -239,18 +240,15 @@ export function QuotaPage() {
     [getQuota, sortNow]
   );
   // 排序在分页之前：否则「最快恢复」只在当前页内成立。
-  const remainingSortNow = useQuotaSortNow(
-    getQuotaRemainingSortSpec(sortMode) !== null,
-    quotaByType
-  );
+  const rankSortNow = useQuotaSortNow(getQuotaRankPlan(sort.field) !== null, quotaByType);
   const sortedEntries = useMemo(
     () =>
-      getQuotaRemainingSortSpec(sortMode)
-        ? sortQuotaEntriesByRemaining(filteredEntries, sortMode, (entry, kind) =>
-            resolveQuotaSortKey(entry.type, getQuota(entry), kind, remainingSortNow)
+      getQuotaRankPlan(sort.field)
+        ? sortQuotaEntriesByRank(filteredEntries, sort, (entry, plan) =>
+            resolveQuotaRank(entry.type, getQuota(entry), plan, rankSortNow)
           )
-        : sortQuotaEntries(filteredEntries, sortMode, resolveNextRecovery),
-    [filteredEntries, getQuota, remainingSortNow, sortMode, resolveNextRecovery]
+        : sortQuotaEntries(filteredEntries, sort, resolveNextRecovery),
+    [filteredEntries, getQuota, rankSortNow, sort, resolveNextRecovery]
   );
 
   const { pageItems, currentPage, totalPages } = useMemo(
@@ -258,17 +256,21 @@ export function QuotaPage() {
     [sortedEntries, page]
   );
 
-  const handleTabChange = useCallback((next: string) => {
-    setTab(next as QuotaTabId);
-    setPage(1);
-    writeQuotaUiState({ tab: next as QuotaTabId });
-  }, []);
+  const handleTabChange = useCallback(
+    (next: string) => {
+      updatePrefs({ quota: { tab: next } });
+      setPage(1);
+    },
+    [updatePrefs]
+  );
 
-  const handleGroupFilterChange = useCallback((next: string) => {
-    setGroupFilter(next);
-    setPage(1);
-    writeQuotaUiState({ groupFilter: next });
-  }, []);
+  const handleGroupFilterChange = useCallback(
+    (next: string) => {
+      updatePrefs({ quota: { groupFilter: next } });
+      setPage(1);
+    },
+    [updatePrefs]
+  );
 
   const handleSaveGroups = useCallback(
     async (next: Array<{ id: string; name: string; color?: string }>) => {
@@ -277,16 +279,21 @@ export function QuotaPage() {
     [saveGroups]
   );
 
-  const handleSortModeChange = useCallback((next: string) => {
-    setSortMode(next as QuotaSortMode);
-    setPage(1);
-    writeQuotaUiState({ sortMode: next as QuotaSortMode });
-  }, []);
+  const handleSortChange = useCallback(
+    (next: QuotaSort) => {
+      updatePrefs({ quota: { sort: next } });
+      setPage(1);
+    },
+    [updatePrefs]
+  );
 
-  const sortOptions = useMemo(
-    () =>
-      QUOTA_SORT_MODES.map((mode) => ({ value: mode, label: t(`quota_management.sort_${mode}`) })),
-    [t]
+  const sortFields = useSortFieldOptions(QUOTA_SORT_FIELDS);
+
+  // Timeline lanes are labelled with file names, which embed the email for some providers.
+  const pageEmails = useMemo(() => pageItems.map((entry) => entry.file.email), [pageItems]);
+  const displayNameFor = useCallback(
+    (name: string) => (maskEmail ? maskEmailsIn(name, pageEmails) : name),
+    [maskEmail, pageEmails]
   );
 
   const { loadedCount, attentionCount } = useMemo(() => {
@@ -457,14 +464,14 @@ export function QuotaPage() {
               </button>
             )}
           </div>
-          <div className={styles.sort}>
-            <Select
-              value={sortMode}
-              options={sortOptions}
-              onChange={handleSortModeChange}
+          <div className={styles.controls}>
+            <SortControl
+              value={sort}
+              fields={sortFields}
+              onChange={handleSortChange}
               ariaLabel={t('quota_management.sort_label')}
-              size="sm"
             />
+            <DisplayOptionsPopover />
           </div>
         </div>
 
@@ -509,7 +516,7 @@ export function QuotaPage() {
             }
           />
         ) : (
-          <div className={styles.grid}>
+          <div className={`${styles.grid} ${compactMode ? styles.gridCompact : ''}`.trim()}>
             {pageItems.map((entry, index) => (
               <QuotaCard
                 key={`${entry.type}:${getQuotaCacheKey(entry.file)}`}
@@ -519,6 +526,8 @@ export function QuotaPage() {
                 canRefresh={canUseActions && !entry.file.disabled}
                 resetting={resettingQuotaName === getQuotaCacheKey(entry.file)}
                 entranceDelayMs={cardEntranceDelay(index)}
+                compact={compactMode}
+                maskEmail={maskEmail}
                 onRefresh={() => void refreshQuota(entry.file, QUOTA_ADAPTERS[entry.type])}
                 onReset={() => resetQuota(entry.file, QUOTA_ADAPTERS[entry.type])}
               />

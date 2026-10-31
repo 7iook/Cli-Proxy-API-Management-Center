@@ -14,12 +14,13 @@ import {
 } from './constants';
 import { deriveAuthFileIdentity } from './identity';
 import { sortByCustomOrder } from './customOrder';
-import type { AuthFilesSortMode } from './uiState';
-import { getQuotaRemainingSortSpec } from '@/features/quota/constants';
+import type { AuthFilesSort } from '@/features/preferences/schema';
+import { getQuotaRankPlan } from '@/features/quota/constants';
 import {
-  resolveQuotaSortKey,
-  sortByQuotaKey,
-  type QuotaSortKey,
+  resolveQuotaRank,
+  sortByRankKey,
+  type QuotaRankKey,
+  type QuotaRankMetric,
   type QuotaWindowKind,
 } from '@/features/quota/quotaSortKey';
 import type { QuotaFileEntry } from '@/features/quota/logic';
@@ -80,51 +81,53 @@ export const matchesAuthFileSearch = (
   });
 };
 
-export type AuthFileQuotaKeyResolver = (file: AuthFileItem, kind: QuotaWindowKind) => QuotaSortKey;
+type QuotaRankPlan = { kind: QuotaWindowKind; metric: QuotaRankMetric };
+
+export type AuthFileQuotaRankResolver = (file: AuthFileItem, plan: QuotaRankPlan) => QuotaRankKey;
 
 /**
- * Builds the quota key resolver for sorting. `nowMs` and the quota lookup are
+ * Builds the quota rank resolver for sorting. `nowMs` and the quota lookup are
  * injected so the caller decides when to re-sort (data change, not clock ticks).
  */
-export const createAuthFileQuotaKeyResolver =
+export const createAuthFileQuotaRankResolver =
   (
     getQuota: (type: QuotaProviderType, cacheKey: string) => unknown,
     nowMs: number
-  ): AuthFileQuotaKeyResolver =>
-  (file, kind) => {
+  ): AuthFileQuotaRankResolver =>
+  (file, plan) => {
     const type = resolveAuthFileQuotaType(file, 'all');
     const quota = type ? getQuota(type, getQuotaCacheKey(file)) : undefined;
-    return resolveQuotaSortKey(type, quota, kind, nowMs);
+    return resolveQuotaRank(type, quota, plan, nowMs);
   };
 
 /**
- * 返回新数组，不改动入参。未知 mode 原序返回拷贝。
- * 额度模式需要注入 resolveQuotaKey；缺失时退化为 default 序。
+ * 返回新数组，不改动入参。未知 field 原序返回拷贝。
+ * 额度字段需要注入 resolveQuotaRank；缺失时退化为 default 序。
+ * Direction: az asc = A→Z; priority desc = high first; quota fields asc = least
+ * remaining / soonest reset first. default and custom ignore it.
  */
 export const sortAuthFiles = (
   files: AuthFileItem[],
-  mode: AuthFilesSortMode,
-  resolveQuotaKey?: AuthFileQuotaKeyResolver
+  sort: AuthFilesSort,
+  resolveQuotaRank?: AuthFileQuotaRankResolver
 ): AuthFileItem[] => {
-  const quotaSpec = getQuotaRemainingSortSpec(mode);
-  if (mode === 'custom' || quotaSpec) {
+  const { field, direction } = sort;
+  const plan = getQuotaRankPlan(field);
+  if (field === 'custom' || plan) {
     // Both are layered over the default order, so ties and unranked items stay deterministic.
-    const base = sortAuthFiles(files, 'default');
-    if (mode === 'custom') {
+    const base = sortAuthFiles(files, { field: 'default', direction: 'asc' });
+    if (field === 'custom') {
       return sortByCustomOrder(
         base.map((file) => ({ file, name: file.name, order: file.ui?.order }))
       ).map((entry) => entry.file);
     }
-    if (!resolveQuotaKey || !quotaSpec) return base;
-    return sortByQuotaKey(
-      base,
-      (file) => resolveQuotaKey(file, quotaSpec.kind),
-      quotaSpec.direction
-    );
+    if (!resolveQuotaRank || !plan) return base;
+    return sortByRankKey(base, (file) => resolveQuotaRank(file, plan), direction);
   }
 
   const copy = [...files];
-  if (mode === 'default') {
+  const sign = direction === 'asc' ? 1 : -1;
+  if (field === 'default') {
     copy.sort((a, b) => {
       const providerA = normalizeProviderKey(String(a.provider ?? a.type ?? 'unknown'));
       const providerB = normalizeProviderKey(String(b.provider ?? b.type ?? 'unknown'));
@@ -132,36 +135,37 @@ export const sortAuthFiles = (
       if (providerCompare !== 0) return providerCompare;
       return a.name.localeCompare(b.name);
     });
-  } else if (mode === 'az') {
+  } else if (field === 'az') {
     // 按卡片主行排（有账号时即 email），所见即所排；同值用文件名决胜。
     // 装饰一次，避免在比较器里重复派生。
     const keys = new Map(copy.map((file) => [file, deriveAuthFileIdentity(file).primary]));
     copy.sort(
-      (a, b) => (keys.get(a) ?? '').localeCompare(keys.get(b) ?? '') || a.name.localeCompare(b.name)
+      (a, b) =>
+        sign * (keys.get(a) ?? '').localeCompare(keys.get(b) ?? '') || a.name.localeCompare(b.name)
     );
-  } else if (mode === 'priority') {
+  } else if (field === 'priority') {
     copy.sort((a, b) => {
       const pa = typeof a.priority === 'number' ? a.priority : 0;
       const pb = typeof b.priority === 'number' ? b.priority : 0;
-      return pb - pa; // 高优先级排前面
+      return sign * (pa - pb);
     });
   }
   return copy;
 };
 
 /**
- * Quota-capable files whose sort key is 'missing' (not loaded, loading or failed)
- * under the active quota sort mode. Empty for non-quota modes.
+ * Quota-capable files whose rank key is 'missing' (not loaded, loading or failed)
+ * under the active quota sort. Empty for non-quota sorts.
  */
 export const collectMissingQuotaEntries = (
   files: AuthFileItem[],
-  mode: AuthFilesSortMode,
-  resolveQuotaKey: AuthFileQuotaKeyResolver
+  sort: AuthFilesSort,
+  resolveQuotaRank: AuthFileQuotaRankResolver
 ): QuotaFileEntry[] => {
-  const spec = getQuotaRemainingSortSpec(mode);
-  if (!spec) return [];
+  const plan = getQuotaRankPlan(sort.field);
+  if (!plan) return [];
   return files.flatMap((file) => {
     const type = resolveAuthFileQuotaType(file, 'all');
-    return type && resolveQuotaKey(file, spec.kind).status === 'missing' ? [{ file, type }] : [];
+    return type && resolveQuotaRank(file, plan).status === 'missing' ? [{ file, type }] : [];
   });
 };

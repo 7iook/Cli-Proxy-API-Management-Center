@@ -2,18 +2,27 @@ import { describe, expect, test } from 'bun:test';
 import {
   buildWildcardSearch,
   collectMissingQuotaEntries,
-  createAuthFileQuotaKeyResolver,
+  createAuthFileQuotaRankResolver,
   matchesAuthFileSearch,
   resolveAuthFileQuotaType,
   sortAuthFiles,
 } from '../src/features/authFiles/logic';
-import type { QuotaSortKey } from '../src/features/quota/quotaSortKey';
+import type { QuotaRankKey } from '../src/features/quota/quotaSortKey';
+import type { AuthFilesSort } from '../src/features/preferences/schema';
 import type { AuthFileItem } from '../src/types';
 
 const authFile = (overrides: Partial<AuthFileItem> = {}): AuthFileItem => ({
   name: 'credential.json',
   type: 'codex',
   ...overrides,
+});
+
+const by = (
+  field: AuthFilesSort['field'],
+  direction: AuthFilesSort['direction'] = 'asc'
+): AuthFilesSort => ({
+  field,
+  direction,
 });
 
 const search = (file: AuthFileItem, term: string) =>
@@ -152,7 +161,7 @@ describe('sortAuthFiles', () => {
       authFile({ name: 'c.json', type: 'codex', provider: undefined }),
       authFile({ name: 'a.json', provider: 'kimi' }),
     ];
-    expect(sortAuthFiles(files, 'default').map((file) => file.name)).toEqual([
+    expect(sortAuthFiles(files, by('default')).map((file) => file.name)).toEqual([
       'c.json',
       'a.json',
       'b.json',
@@ -164,7 +173,10 @@ describe('sortAuthFiles', () => {
       authFile({ name: 'zzz.json', email: 'aaa@example.com' }),
       authFile({ name: 'aaa.json', email: 'zzz@example.com' }),
     ];
-    expect(sortAuthFiles(files, 'az').map((file) => file.name)).toEqual(['zzz.json', 'aaa.json']);
+    expect(sortAuthFiles(files, by('az')).map((file) => file.name)).toEqual([
+      'zzz.json',
+      'aaa.json',
+    ]);
   });
 
   test("'az' falls back to the file name when primaries are equal", () => {
@@ -172,7 +184,7 @@ describe('sortAuthFiles', () => {
       authFile({ name: 'codex-abc-user@x.com-team.json', email: 'user@x.com' }),
       authFile({ name: 'codex-abc-user@x.com-plus.json', email: 'user@x.com' }),
     ];
-    expect(sortAuthFiles(files, 'az').map((file) => file.name)).toEqual([
+    expect(sortAuthFiles(files, by('az')).map((file) => file.name)).toEqual([
       'codex-abc-user@x.com-plus.json',
       'codex-abc-user@x.com-team.json',
     ]);
@@ -183,7 +195,7 @@ describe('sortAuthFiles', () => {
       authFile({ name: 'kimi-9.json', type: 'kimi' }),
       authFile({ name: 'zzz.json', email: 'aaa@example.com' }),
     ];
-    expect(sortAuthFiles(files, 'az').map((file) => file.name)).toEqual([
+    expect(sortAuthFiles(files, by('az')).map((file) => file.name)).toEqual([
       'zzz.json',
       'kimi-9.json',
     ]);
@@ -196,7 +208,7 @@ describe('sortAuthFiles', () => {
       authFile({ name: 'c.json' }),
       authFile({ name: 'd.json', priority: 9 }),
     ];
-    expect(sortAuthFiles(files, 'priority').map((file) => file.name)).toEqual([
+    expect(sortAuthFiles(files, by('priority', 'desc')).map((file) => file.name)).toEqual([
       'd.json',
       'b.json',
       'a.json',
@@ -204,19 +216,35 @@ describe('sortAuthFiles', () => {
     ]);
   });
 
+  test('direction reverses az and priority', () => {
+    const files = [
+      authFile({ name: 'a.json', email: 'aaa@example.com', priority: 1 }),
+      authFile({ name: 'b.json', email: 'bbb@example.com', priority: 9 }),
+    ];
+    expect(sortAuthFiles(files, by('az', 'desc')).map((file) => file.name)).toEqual([
+      'b.json',
+      'a.json',
+    ]);
+    expect(sortAuthFiles(files, by('priority', 'asc')).map((file) => file.name)).toEqual([
+      'a.json',
+      'b.json',
+    ]);
+  });
+
   test('returns a new array and leaves the input untouched', () => {
     const files = [authFile({ name: 'b.json' }), authFile({ name: 'a.json' })];
-    const result = sortAuthFiles(files, 'az');
+    const result = sortAuthFiles(files, by('az'));
     expect(result).not.toBe(files);
     expect(files.map((file) => file.name)).toEqual(['b.json', 'a.json']);
   });
 
   test('an unknown mode returns an unsorted copy', () => {
     const files = [authFile({ name: 'b.json' }), authFile({ name: 'a.json' })];
-    expect(sortAuthFiles(files, 'nope' as unknown as 'az').map((file) => file.name)).toEqual([
-      'b.json',
-      'a.json',
-    ]);
+    expect(
+      sortAuthFiles(files, { field: 'nope', direction: 'asc' } as unknown as AuthFilesSort).map(
+        (file) => file.name
+      )
+    ).toEqual(['b.json', 'a.json']);
   });
 });
 
@@ -241,7 +269,7 @@ describe('sortAuthFiles custom and quota modes', () => {
   ];
 
   test('custom puts ranked files first by order, the rest in default order', () => {
-    expect(names(sortAuthFiles(ranked, 'custom'))).toEqual([
+    expect(names(sortAuthFiles(ranked, by('custom')))).toEqual([
       'c.json',
       'a.json',
       'b.json',
@@ -249,41 +277,45 @@ describe('sortAuthFiles custom and quota modes', () => {
     ]);
   });
 
-  test('quota modes use the injected resolver and sink missing/na files in both directions', () => {
-    const keys: Record<string, QuotaSortKey> = {
-      'a.json': { status: 'value', remaining: 80, resetAtMs: null, reset: false },
+  test('quota fields use the injected resolver and sink missing/na files in both directions', () => {
+    const keys: Record<string, QuotaRankKey> = {
+      'a.json': { status: 'value', value: 80, tiebreak: 0 },
       'b.json': { status: 'missing' },
-      'c.json': { status: 'value', remaining: 10, resetAtMs: null, reset: false },
+      'c.json': { status: 'value', value: 10, tiebreak: 0 },
       'd.json': { status: 'na' },
     };
-    const kinds: string[] = [];
-    const resolve = (file: AuthFileItem, kind: string): QuotaSortKey => {
-      kinds.push(kind);
+    const plans: string[] = [];
+    const resolve = (file: AuthFileItem, plan: { kind: string; metric: string }): QuotaRankKey => {
+      plans.push(`${plan.kind}:${plan.metric}`);
       return keys[file.name];
     };
-    expect(names(sortAuthFiles(ranked, 'fiveHourAsc', resolve))).toEqual([
+    expect(names(sortAuthFiles(ranked, by('fiveHour', 'asc'), resolve))).toEqual([
       'c.json',
       'a.json',
       'b.json',
       'd.json',
     ]);
-    expect(names(sortAuthFiles(ranked, 'weeklyDesc', resolve))).toEqual([
+    expect(names(sortAuthFiles(ranked, by('weekly', 'desc'), resolve))).toEqual([
       'a.json',
       'c.json',
       'b.json',
       'd.json',
     ]);
-    expect(kinds).toContain('fiveHour');
-    expect(kinds).toContain('weekly');
+    sortAuthFiles(ranked, by('weeklyReset'), resolve);
+    expect(plans).toContain('fiveHour:remaining');
+    expect(plans).toContain('weekly:remaining');
+    expect(plans).toContain('weekly:reset');
   });
 
   test('quota modes without a resolver fall back to the default order', () => {
-    expect(names(sortAuthFiles(ranked, 'fiveHourAsc'))).toEqual(names(sortAuthFiles(ranked, 'default')));
+    expect(names(sortAuthFiles(ranked, by('fiveHour')))).toEqual(
+      names(sortAuthFiles(ranked, by('default')))
+    );
   });
 
-  test('createAuthFileQuotaKeyResolver reads the store state for the file provider', () => {
+  test('createAuthFileQuotaRankResolver reads the store state for the file provider', () => {
     const claude = authFile({ name: 'cl.json', type: 'claude' });
-    const resolve = createAuthFileQuotaKeyResolver((type, key) => {
+    const resolve = createAuthFileQuotaRankResolver((type, key) => {
       expect(type).toBe('claude');
       expect(key).toBe('cl.json');
       return {
@@ -291,19 +323,30 @@ describe('sortAuthFiles custom and quota modes', () => {
         windows: [{ id: 'five-hour', usedPercent: 25, resetAtMs: null, periodHours: 5 }],
       };
     }, 1_000);
-    expect(resolve(claude, 'fiveHour')).toMatchObject({ status: 'value', remaining: 75 });
-    expect(resolve(authFile({ name: 'x.json', type: 'unknown-provider' }), 'fiveHour')).toEqual({
+    expect(resolve(claude, { kind: 'fiveHour', metric: 'remaining' })).toMatchObject({
+      status: 'value',
+      value: 75,
+    });
+    expect(
+      resolve(authFile({ name: 'x.json', type: 'unknown-provider' }), {
+        kind: 'fiveHour',
+        metric: 'remaining',
+      })
+    ).toEqual({
       status: 'na',
     });
   });
 
-  test('collectMissingQuotaEntries only reports quota-capable files in quota modes', () => {
-    const files = [authFile({ name: 'a.json', type: 'codex' }), authFile({ name: 'b.json', type: 'codex' })];
-    const resolve = (file: AuthFileItem): QuotaSortKey =>
+  test('collectMissingQuotaEntries only reports quota-capable files under quota sorts', () => {
+    const files = [
+      authFile({ name: 'a.json', type: 'codex' }),
+      authFile({ name: 'b.json', type: 'codex' }),
+    ];
+    const resolve = (file: AuthFileItem): QuotaRankKey =>
       file.name === 'a.json' ? { status: 'missing' } : { status: 'na' };
-    expect(collectMissingQuotaEntries(files, 'weeklyAsc', resolve).map((e) => e.file.name)).toEqual([
-      'a.json',
-    ]);
-    expect(collectMissingQuotaEntries(files, 'default', resolve)).toEqual([]);
+    expect(
+      collectMissingQuotaEntries(files, by('weeklyReset'), resolve).map((e) => e.file.name)
+    ).toEqual(['a.json']);
+    expect(collectMissingQuotaEntries(files, by('default'), resolve)).toEqual([]);
   });
 });

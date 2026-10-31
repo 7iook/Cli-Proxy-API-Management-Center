@@ -10,10 +10,16 @@ import {
   paginate,
   resolveQuotaProviderType,
   sortQuotaEntries,
-  sortQuotaEntriesByRemaining,
+  sortQuotaEntriesByRank,
   type QuotaFileEntry,
 } from '@/features/quota/logic';
+import type { QuotaSort } from '@/features/preferences/schema';
 import type { AuthFileItem } from '@/types';
+
+const by = (field: QuotaSort['field'], direction: QuotaSort['direction'] = 'asc'): QuotaSort => ({
+  field,
+  direction,
+});
 
 const file = (name: string, provider: string, extra: Partial<AuthFileItem> = {}): AuthFileItem =>
   ({ name, provider, ...extra }) as AuthFileItem;
@@ -143,7 +149,7 @@ describe('filterEntriesBySearch', () => {
       )
     );
     const filtered = filterEntriesBySearch(filterEntriesByTab(all, 'codex'), 'target@');
-    const sorted = sortQuotaEntries(filtered, 'default', () => null);
+    const sorted = sortQuotaEntries(filtered, by('default'), () => null);
     const { pageItems, totalPages } = paginate(sorted, 1, QUOTA_PAGE_SIZE);
     expect(pageItems.map(({ file }) => file.name)).toEqual(['codex-20.json', 'codex-21.json']);
     expect(totalPages).toBe(1);
@@ -196,7 +202,7 @@ describe('sortQuotaEntries', () => {
     instants[entry.file.name] ?? null;
 
   test('default mode preserves order but returns a new array', () => {
-    const sorted = sortQuotaEntries(entries, 'default', () => 1);
+    const sorted = sortQuotaEntries(entries, by('default'), () => 1);
     expect(byName(sorted)).toEqual(byName(entries));
     expect(sorted).not.toBe(entries);
   });
@@ -204,7 +210,7 @@ describe('sortQuotaEntries', () => {
   test('orders loaded credentials by how soon they recover, across providers', () => {
     const sorted = sortQuotaEntries(
       entries,
-      'soonest',
+      by('soonest'),
       resolver({
         'codex-a.json': 300,
         'claude-a.json': 100,
@@ -226,7 +232,7 @@ describe('sortQuotaEntries', () => {
     // Loading is click-to-fetch, so an unloaded tail is the normal case.
     const sorted = sortQuotaEntries(
       entries,
-      'soonest',
+      by('soonest'),
       resolver({ 'codex-b.json': 200, 'kimi-a.json': 100 })
     );
     expect(byName(sorted)).toEqual([
@@ -240,52 +246,52 @@ describe('sortQuotaEntries', () => {
   });
 
   test('leaves the order untouched when nothing has loaded', () => {
-    expect(byName(sortQuotaEntries(entries, 'soonest', () => null))).toEqual(byName(entries));
+    expect(byName(sortQuotaEntries(entries, by('soonest'), () => null))).toEqual(byName(entries));
   });
 
   test('breaks ties on the original position, so equal instants stay stable', () => {
-    const sorted = sortQuotaEntries(entries, 'soonest', () => 500);
+    const sorted = sortQuotaEntries(entries, by('soonest'), () => 500);
     expect(byName(sorted)).toEqual(byName(entries));
   });
 
   test('does not mutate the input', () => {
     const input = [...entries];
-    sortQuotaEntries(input, 'soonest', resolver({ 'codex-b.json': 1 }));
+    sortQuotaEntries(input, by('soonest'), resolver({ 'codex-b.json': 1 }));
     expect(input).toEqual(entries);
   });
 
   test('sorts before paginating, so the globally soonest lands on page one', () => {
     // Last in the default order, first to recover.
     const last = entries[entries.length - 1].file.name;
-    const sorted = sortQuotaEntries(entries, 'soonest', resolver({ [last]: 1 }));
+    const sorted = sortQuotaEntries(entries, by('soonest'), resolver({ [last]: 1 }));
     expect(paginate(sorted, 1, 2).pageItems[0].file.name).toBe(last);
   });
 });
 
-describe('sortQuotaEntriesByRemaining', () => {
+describe('sortQuotaEntriesByRank', () => {
   const entries = classifyQuotaFiles(FILES.slice(0, 4));
-  const remaining: Record<string, number | null> = {
+  const ranks: Record<string, number | null> = {
     'codex-a.json': 40,
     'claude-a.json': 90,
     'kimi-a.json': null,
     'codex-b.json': 10,
   };
   const resolve = (entry: QuotaFileEntry) => {
-    const value = remaining[entry.file.name];
+    const value = ranks[entry.file.name];
     return value === null
       ? ({ status: 'missing' } as const)
-      : ({ status: 'value', remaining: value, resetAtMs: null, reset: false } as const);
+      : ({ status: 'value', value, tiebreak: 0 } as const);
   };
   const names = (list: QuotaFileEntry[]) => list.map((entry) => entry.file.name);
 
-  test('orders by remaining and keeps missing entries last in either direction', () => {
-    expect(names(sortQuotaEntriesByRemaining(entries, 'fiveHourAsc', resolve))).toEqual([
+  test('orders by rank and keeps missing entries last in either direction', () => {
+    expect(names(sortQuotaEntriesByRank(entries, by('fiveHour', 'asc'), resolve))).toEqual([
       'codex-b.json',
       'codex-a.json',
       'claude-a.json',
       'kimi-a.json',
     ]);
-    expect(names(sortQuotaEntriesByRemaining(entries, 'weeklyDesc', resolve))).toEqual([
+    expect(names(sortQuotaEntriesByRank(entries, by('weeklyReset', 'desc'), resolve))).toEqual([
       'claude-a.json',
       'codex-a.json',
       'codex-b.json',
@@ -293,8 +299,8 @@ describe('sortQuotaEntriesByRemaining', () => {
     ]);
   });
 
-  test('other modes return an untouched copy', () => {
-    const result = sortQuotaEntriesByRemaining(entries, 'default', resolve);
+  test('other fields return an untouched copy', () => {
+    const result = sortQuotaEntriesByRank(entries, by('default'), resolve);
     expect(result).toEqual(entries);
     expect(result).not.toBe(entries);
   });

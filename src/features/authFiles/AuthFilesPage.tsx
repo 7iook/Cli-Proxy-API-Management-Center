@@ -5,6 +5,7 @@ import { useInterval } from '@/hooks/useInterval';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { useRevealOnScroll } from '@/hooks/motion';
 import { usePageTransitionLayer } from '@/components/common/PageTransitionLayer';
+import { useSortFieldOptions } from '@/components/common/useSortFieldOptions';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -25,7 +26,7 @@ import {
   planMoveToTop,
   type OrderedItem,
 } from '@/features/authFiles/customOrder';
-import { getQuotaRemainingSortSpec } from '@/features/quota/constants';
+import { getQuotaRankPlan } from '@/features/quota/constants';
 import { useQuotaBatchLoader } from '@/features/quota/hooks/useQuotaBatchLoader';
 import { useQuotaSortNow } from '@/features/quota/hooks/useQuotaSortNow';
 import type { AuthFileItem } from '@/types';
@@ -61,7 +62,7 @@ import { invalidateAuthFileDerivedCaches } from '@/features/authFiles/cacheInval
 import {
   buildWildcardSearch,
   collectMissingQuotaEntries,
-  createAuthFileQuotaKeyResolver,
+  createAuthFileQuotaRankResolver,
   matchesAuthFileSearch,
   sortAuthFiles,
 } from '@/features/authFiles/logic';
@@ -71,43 +72,26 @@ import { useAuthFilesOauth } from '@/features/authFiles/hooks/useAuthFilesOauth'
 import { useAuthFilesPrefixProxyEditor } from '@/features/authFiles/hooks/useAuthFilesPrefixProxyEditor';
 import { useAuthFilesStatusBarCache } from '@/features/authFiles/hooks/useAuthFilesStatusBarCache';
 import {
-  isAuthFilesStatusFilterMode,
-  isAuthFilesSortMode,
-  readAuthFilesUiState,
-  readPersistedAuthFilesCompactMode,
-  writeAuthFilesUiState,
-  writePersistedAuthFilesCompactMode,
+  AUTH_FILES_SORT_FIELDS,
+  type AuthFilesSort,
   type AuthFilesStatusFilterMode,
-  type AuthFilesSortMode,
-} from '@/features/authFiles/uiState';
+} from '@/features/preferences/schema';
 import {
   useAccountGroupsStore,
   useAuthStore,
   useNotificationStore,
+  usePanelPreferencesStore,
   useQuotaStore,
   useThemeStore,
 } from '@/stores';
 import styles from './AuthFilesPage.module.scss';
 
-const DEFAULT_REGULAR_PAGE_SIZE = 9;
-const DEFAULT_COMPACT_PAGE_SIZE = 12;
 const SKELETON_CARD_COUNT = 6;
 /** 首屏卡片级联入场总预算，与 useRevealGroup 同一 360ms 语汇。 */
 const CARD_ENTRANCE_BUDGET_MS = 360;
 
-const resolveStatusFilterMode = (
-  problemOnly: boolean,
-  disabledOnly: boolean
-): AuthFilesStatusFilterMode => {
-  if (problemOnly) return 'problem';
-  if (disabledOnly) return 'disabled';
-  return 'all';
-};
-
-const normalizePersistedStatusFilterMode = (value: unknown): AuthFilesStatusFilterMode | null => {
-  if (value === 'disabledProblem') return 'problem';
-  return isAuthFilesStatusFilterMode(value) ? value : null;
-};
+const DEFAULT_SORT: AuthFilesSort = { field: 'default', direction: 'asc' };
+const CUSTOM_SORT: AuthFilesSort = { field: 'custom', direction: 'asc' };
 
 export function AuthFilesPage() {
   const { t } = useTranslation();
@@ -118,21 +102,38 @@ export function AuthFilesPage() {
   const isCurrentLayer = pageTransitionLayer ? pageTransitionLayer.status === 'current' : true;
   const navigate = useNavigate();
 
-  const [filter, setFilter] = useState<'all' | string>('all');
-  const [statusFilterMode, setStatusFilterMode] = useState<AuthFilesStatusFilterMode>('all');
-  const [compactMode, setCompactMode] = useState(false);
+  const authPrefs = usePanelPreferencesStore((state) => state.prefs.authFiles);
+  const compactMode = usePanelPreferencesStore((state) => state.prefs.display.compact);
+  const maskEmail = usePanelPreferencesStore((state) => state.prefs.display.maskEmail);
+  const updatePrefs = usePanelPreferencesStore((state) => state.update);
+  const filter = authPrefs.providerFilter;
+  const statusFilterMode = authPrefs.statusFilter;
+  const sort = authPrefs.sort;
+  const groupFilter = authPrefs.groupFilter;
+  const pageSize = compactMode ? authPrefs.compactPageSize : authPrefs.regularPageSize;
+  const setFilter = useCallback(
+    (providerFilter: string) => updatePrefs({ authFiles: { providerFilter } }),
+    [updatePrefs]
+  );
+  const setStatusFilterMode = useCallback(
+    (statusFilter: AuthFilesStatusFilterMode) => updatePrefs({ authFiles: { statusFilter } }),
+    [updatePrefs]
+  );
+  const setGroupFilter = useCallback(
+    (nextGroupFilter: string) => updatePrefs({ authFiles: { groupFilter: nextGroupFilter } }),
+    [updatePrefs]
+  );
+  const setSort = useCallback(
+    (nextSort: AuthFilesSort) => updatePrefs({ authFiles: { sort: nextSort } }),
+    [updatePrefs]
+  );
+
+  // Search text and page number are per-visit state; they are never persisted or synced.
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
-  const [pageSizeByMode, setPageSizeByMode] = useState({
-    regular: DEFAULT_REGULAR_PAGE_SIZE,
-    compact: DEFAULT_COMPACT_PAGE_SIZE,
-  });
-  const [pageSizeInput, setPageSizeInput] = useState('9');
+  const [pageSizeInput, setPageSizeInput] = useState(String(pageSize));
   const [viewMode, setViewMode] = useState<'diagram' | 'list'>('list');
-  const [sortMode, setSortMode] = useState<AuthFilesSortMode>('default');
-  const [groupFilter, setGroupFilter] = useState<string>(GROUP_FILTER_ALL);
   const [groupManagerOpen, setGroupManagerOpen] = useState(false);
-  const [uiStateHydrated, setUiStateHydrated] = useState(false);
 
   const groups = useAccountGroupsStore((state) => state.groups);
   const groupsSupported = useAccountGroupsStore((state) => state.supported);
@@ -241,105 +242,9 @@ export function AuthFilesPage() {
     : null;
   const activeQuotaFilter: AuthFileQuotaFilter =
     normalizedFilter === 'all' ? 'all' : (quotaFilterType ?? normalizedFilter) || null;
-  const pageSize = compactMode ? pageSizeByMode.compact : pageSizeByMode.regular;
   const problemOnly = statusFilterMode === 'problem';
   const disabledOnly = statusFilterMode === 'disabled';
   const enabledOnly = statusFilterMode === 'enabled';
-
-  /* ---------- uiState 水合与持久化（localStorage key/形状与旧版完全一致） ---------- */
-
-  useEffect(() => {
-    const persistedCompactMode = readPersistedAuthFilesCompactMode();
-    if (typeof persistedCompactMode === 'boolean') {
-      setCompactMode(persistedCompactMode);
-    }
-
-    const persisted = readAuthFilesUiState();
-    if (persisted) {
-      if (typeof persisted.filter === 'string' && persisted.filter.trim()) {
-        setFilter(normalizeProviderKey(persisted.filter));
-      }
-      const persistedStatusFilterMode = normalizePersistedStatusFilterMode(
-        persisted.statusFilterMode
-      );
-      if (persistedStatusFilterMode) {
-        setStatusFilterMode(persistedStatusFilterMode);
-      } else if (
-        typeof persisted.problemOnly === 'boolean' ||
-        typeof persisted.disabledOnly === 'boolean'
-      ) {
-        setStatusFilterMode(
-          resolveStatusFilterMode(persisted.problemOnly === true, persisted.disabledOnly === true)
-        );
-      }
-      if (typeof persistedCompactMode !== 'boolean' && typeof persisted.compactMode === 'boolean') {
-        setCompactMode(persisted.compactMode);
-      }
-      if (typeof persisted.search === 'string') {
-        setSearch(persisted.search);
-      }
-      if (typeof persisted.page === 'number' && Number.isFinite(persisted.page)) {
-        setPage(Math.max(1, Math.round(persisted.page)));
-      }
-      const legacyPageSize =
-        typeof persisted.pageSize === 'number' && Number.isFinite(persisted.pageSize)
-          ? clampCardPageSize(persisted.pageSize)
-          : null;
-      const regularPageSize =
-        typeof persisted.regularPageSize === 'number' && Number.isFinite(persisted.regularPageSize)
-          ? clampCardPageSize(persisted.regularPageSize)
-          : (legacyPageSize ?? DEFAULT_REGULAR_PAGE_SIZE);
-      const compactPageSize =
-        typeof persisted.compactPageSize === 'number' && Number.isFinite(persisted.compactPageSize)
-          ? clampCardPageSize(persisted.compactPageSize)
-          : (legacyPageSize ?? DEFAULT_COMPACT_PAGE_SIZE);
-      setPageSizeByMode({
-        regular: regularPageSize,
-        compact: compactPageSize,
-      });
-      if (isAuthFilesSortMode(persisted.sortMode)) {
-        setSortMode(persisted.sortMode);
-      }
-      if (typeof persisted.groupFilter === 'string' && persisted.groupFilter) {
-        setGroupFilter(persisted.groupFilter);
-      }
-    }
-
-    setUiStateHydrated(true);
-  }, []);
-
-  useEffect(() => {
-    if (!uiStateHydrated) return;
-
-    writeAuthFilesUiState({
-      filter,
-      statusFilterMode,
-      problemOnly,
-      disabledOnly,
-      compactMode,
-      search,
-      page,
-      pageSize,
-      regularPageSize: pageSizeByMode.regular,
-      compactPageSize: pageSizeByMode.compact,
-      sortMode,
-      groupFilter,
-    });
-    writePersistedAuthFilesCompactMode(compactMode);
-  }, [
-    compactMode,
-    disabledOnly,
-    filter,
-    groupFilter,
-    page,
-    pageSize,
-    pageSizeByMode,
-    problemOnly,
-    search,
-    sortMode,
-    statusFilterMode,
-    uiStateHydrated,
-  ]);
 
   useEffect(() => {
     setPageSizeInput(String(pageSize));
@@ -347,11 +252,11 @@ export function AuthFilesPage() {
 
   const setCurrentModePageSize = useCallback(
     (next: number) => {
-      setPageSizeByMode((current) =>
-        compactMode ? { ...current, compact: next } : { ...current, regular: next }
-      );
+      updatePrefs({
+        authFiles: compactMode ? { compactPageSize: next } : { regularPageSize: next },
+      });
     },
-    [compactMode]
+    [compactMode, updatePrefs]
   );
 
   const commitPageSizeInput = useCallback(
@@ -397,19 +302,21 @@ export function AuthFilesPage() {
     [setCurrentModePageSize]
   );
 
-  const handleSortModeChange = useCallback(
-    (value: string) => {
-      if (!isAuthFilesSortMode(value) || value === sortMode) return;
-      setSortMode(value);
+  const handleSortChange = useCallback(
+    (next: AuthFilesSort) => {
+      setSort(next);
       setPage(1);
     },
-    [sortMode]
+    [setSort]
   );
 
-  const handleStatusFilterModeChange = useCallback((nextMode: AuthFilesStatusFilterMode) => {
-    setStatusFilterMode(nextMode);
-    setPage(1);
-  }, []);
+  const handleStatusFilterModeChange = useCallback(
+    (nextMode: AuthFilesStatusFilterMode) => {
+      setStatusFilterMode(nextMode);
+      setPage(1);
+    },
+    [setStatusFilterMode]
+  );
 
   /* ---------- 数据加载：首载前台（骨架屏），此后一律后台（不清空网格） ---------- */
 
@@ -440,7 +347,7 @@ export function AuthFilesPage() {
     if (!groupsEnabled) return;
     const normalized = normalizeGroupFilter(groupFilter, groups);
     if (normalized !== groupFilter) setGroupFilter(normalized);
-  }, [groupFilter, groups, groupsEnabled]);
+  }, [groupFilter, groups, groupsEnabled, setGroupFilter]);
 
   const activeGroupFilter = groupsEnabled
     ? normalizeGroupFilter(groupFilter, groups)
@@ -486,22 +393,13 @@ export function AuthFilesPage() {
     [t]
   );
 
-  // Ordered basic, quota, custom; the select has no section headers.
-  const sortOptions = useMemo(
-    () => [
-      { value: 'default', label: t('auth_files.sort_default') },
-      { value: 'az', label: t('auth_files.sort_az') },
-      { value: 'priority', label: t('auth_files.sort_priority') },
-      { value: 'fiveHourDesc', label: t('auth_files.sort_fiveHourDesc') },
-      { value: 'fiveHourAsc', label: t('auth_files.sort_fiveHourAsc') },
-      { value: 'weeklyDesc', label: t('auth_files.sort_weeklyDesc') },
-      { value: 'weeklyAsc', label: t('auth_files.sort_weeklyAsc') },
-      ...(customOrderEnabled ? [{ value: 'custom', label: t('auth_files.sort_custom') }] : []),
-    ],
-    [customOrderEnabled, t]
+  const sortFieldList = useMemo(
+    () => AUTH_FILES_SORT_FIELDS.filter((field) => field !== 'custom' || customOrderEnabled),
+    [customOrderEnabled]
   );
-  const effectiveSortMode: AuthFilesSortMode =
-    sortMode === 'custom' && !customOrderEnabled ? 'default' : sortMode;
+  const sortFields = useSortFieldOptions(sortFieldList);
+  const effectiveSort: AuthFilesSort =
+    sort.field === 'custom' && !customOrderEnabled ? DEFAULT_SORT : sort;
 
   const typeCounts = useMemo(() => {
     const counts: Record<string, number> = { all: filesMatchingStatusFilters.length };
@@ -557,7 +455,7 @@ export function AuthFilesPage() {
   const metaQuota = useQuotaStore((state) => state.metaQuota);
   const pluginQuota = useQuotaStore((state) => state.pluginQuota);
   const xaiQuota = useQuotaStore((state) => state.xaiQuota);
-  const quotaSortActive = getQuotaRemainingSortSpec(effectiveSortMode) !== null;
+  const quotaSortActive = getQuotaRankPlan(effectiveSort.field) !== null;
   const quotaByType = useMemo(
     () =>
       ({
@@ -583,19 +481,19 @@ export function AuthFilesPage() {
   );
   // Re-read only when quota data changes, so a ticking clock never reorders cards.
   const quotaSortNowMs = useQuotaSortNow(quotaSortActive, quotaByType);
-  const quotaKeyResolver = useMemo(
-    () => createAuthFileQuotaKeyResolver((type, key) => quotaByType[type]?.[key], quotaSortNowMs),
+  const quotaRankResolver = useMemo(
+    () => createAuthFileQuotaRankResolver((type, key) => quotaByType[type]?.[key], quotaSortNowMs),
     [quotaByType, quotaSortNowMs]
   );
 
   const sorted = useMemo(
-    () => sortAuthFiles(filtered, effectiveSortMode, quotaKeyResolver),
-    [effectiveSortMode, filtered, quotaKeyResolver]
+    () => sortAuthFiles(filtered, effectiveSort, quotaRankResolver),
+    [effectiveSort, filtered, quotaRankResolver]
   );
 
   const missingQuotaEntries = useMemo(
-    () => collectMissingQuotaEntries(filtered, effectiveSortMode, quotaKeyResolver),
-    [effectiveSortMode, filtered, quotaKeyResolver]
+    () => collectMissingQuotaEntries(filtered, effectiveSort, quotaRankResolver),
+    [effectiveSort, filtered, quotaRankResolver]
   );
   const { batchLoading: quotaBatchLoading, loadQuota } = useQuotaBatchLoader();
 
@@ -654,7 +552,7 @@ export function AuthFilesPage() {
         // Top/bottom are global: rank against every writable file, not just the visible ones.
         const all = sortAuthFiles(
           files.filter((item) => !isRuntimeOnlyAuthFile(item)),
-          'custom'
+          CUSTOM_SORT
         ).map(toOrdered);
         writes =
           action === 'top' ? planMoveToTop(all, [file.name]) : planMoveToBottom(all, [file.name]);
@@ -668,17 +566,26 @@ export function AuthFilesPage() {
     if (selectedNames.length === 0) return;
     const all = sortAuthFiles(
       files.filter((item) => !isRuntimeOnlyAuthFile(item)),
-      'custom'
+      CUSTOM_SORT
     ).map(toOrdered);
     const writes = planMoveToTop(all, selectedNames);
-    if (sortMode !== 'custom') {
-      setSortMode('custom');
+    if (sort.field !== 'custom') {
+      setSort(CUSTOM_SORT);
       setPage(1);
       showNotification(t('auth_files.order_switched_custom'), 'info');
     }
     const ok = await applyOrderWrites(writes);
     if (ok) deselectAll();
-  }, [applyOrderWrites, deselectAll, files, selectedNames, showNotification, sortMode, t]);
+  }, [
+    applyOrderWrites,
+    deselectAll,
+    files,
+    selectedNames,
+    setSort,
+    showNotification,
+    sort.field,
+    t,
+  ]);
 
   const handleAssignGroup = useCallback(
     (file: AuthFileItem, groupId: string) => {
@@ -698,10 +605,13 @@ export function AuthFilesPage() {
     [clearGroupsLocally, groups, saveGroups, showNotification, t]
   );
 
-  const handleGroupFilterChange = useCallback((value: string) => {
-    setGroupFilter(value);
-    setPage(1);
-  }, []);
+  const handleGroupFilterChange = useCallback(
+    (value: string) => {
+      setGroupFilter(value);
+      setPage(1);
+    },
+    [setGroupFilter]
+  );
 
   /* ---------- 头部遥测计数 ---------- */
 
@@ -772,12 +682,12 @@ export function AuthFilesPage() {
   );
 
   const clearFilters = useCallback(() => {
-    setFilter('all');
-    setGroupFilter(GROUP_FILTER_ALL);
-    setStatusFilterMode('all');
+    updatePrefs({
+      authFiles: { providerFilter: 'all', groupFilter: GROUP_FILTER_ALL, statusFilter: 'all' },
+    });
     setSearch('');
     setPage(1);
-  }, []);
+  }, [updatePrefs]);
 
   const deleteAllButtonLabel = (() => {
     if (enabledOnly || disabledOnly) {
@@ -868,14 +778,12 @@ export function AuthFilesPage() {
           statusFilterMode={statusFilterMode}
           statusFilterOptions={statusFilterOptions}
           onStatusFilterChange={handleStatusFilterModeChange}
-          sortMode={effectiveSortMode}
-          sortOptions={sortOptions}
-          onSortModeChange={handleSortModeChange}
+          sort={effectiveSort}
+          sortFields={sortFields}
+          onSortChange={handleSortChange}
           pageSizeInput={pageSizeInput}
           onPageSizeInputChange={handlePageSizeChange}
           onPageSizeCommit={commitPageSizeInput}
-          compactMode={compactMode}
-          onCompactModeChange={setCompactMode}
           deleteLabel={deleteAllButtonLabel}
           deleteDisabled={
             disableControls ||
@@ -967,6 +875,7 @@ export function AuthFilesPage() {
                 key={getQuotaCacheKey(file)}
                 file={file}
                 compact={compactMode}
+                maskEmail={maskEmail}
                 selected={selectedFiles.has(file.name)}
                 resolvedTheme={resolvedTheme}
                 disableControls={disableControls}
@@ -988,7 +897,7 @@ export function AuthFilesPage() {
                 groups={groupsEnabled ? groups : undefined}
                 onAssignGroup={groupsEnabled ? handleAssignGroup : undefined}
                 orderControls={
-                  effectiveSortMode === 'custom' && !isRuntimeOnlyAuthFile(file)
+                  effectiveSort.field === 'custom' && !isRuntimeOnlyAuthFile(file)
                     ? {
                         isFirst: movableIndexByName.get(file.name) === 0,
                         isLast: movableIndexByName.get(file.name) === movableSorted.length - 1,

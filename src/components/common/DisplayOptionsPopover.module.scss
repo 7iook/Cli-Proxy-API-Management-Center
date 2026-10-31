@@ -1,0 +1,105 @@
+@use '../../styles/mixins' as *;
+
+/* Display options button + popover, shared by the auth-files and quota toolbars. */
+
+.display {
+  position: relative;
+}
+
+.displayButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--toolbar-control-height, 32px);
+  padding: 0 12px;
+  border-radius: $radius-full;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  transition:
+    color var(--dur-hover, 200ms) var(--ease-out-strong, ease-out),
+    border-color var(--dur-hover, 200ms) var(--ease-out-strong, ease-out),
+    transform var(--dur-press, 160ms) var(--ease-out-strong, ease-out);
+
+  &:active {
+    transform: scale(0.96);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 1px;
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .displayButton:hover {
+    color: var(--text-primary);
+    border-color: var(--border-hover);
+  }
+}
+
+.displayButtonActive {
+  color: var(--text-primary);
+  border-color: var(--border-hover);
+  background: var(--bg-primary);
+}
+
+.popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: $z-dropdown;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 216px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background: var(--floating-surface);
+  box-shadow: var(--floating-shadow);
+  transform-origin: top right;
+  animation: toolbar-popover-in var(--dur-hover, 200ms) var(--ease-out-strong, ease-out) both;
+}
+
+@keyframes toolbar-popover-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+}
+
+.popoverRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.scope {
+  margin: 0;
+  max-width: 240px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-tertiary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .displayButton {
+    transition: none;
+  }
+
+  .displayButton:active {
+    transform: none;
+  }
+
+  .popover {
+    animation: none;
+  }
+}

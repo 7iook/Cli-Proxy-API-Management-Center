@@ -36,10 +36,12 @@ import {
   type AuthFileQuotaFilter,
   type ResolvedTheme,
 } from '@/features/authFiles/constants';
-import { deriveAuthFileIdentity } from '@/features/authFiles/identity';
+import { deriveAuthFileIdentity, maskAuthFileIdentity } from '@/features/authFiles/identity';
+import { maskEmailsIn } from '@/utils/maskEmail';
 import { resolveAuthFileQuotaType } from '@/features/authFiles/logic';
 import type { AuthFileStatusBarData } from '@/features/authFiles/hooks/useAuthFilesStatusBarCache';
 import { AuthFileQuotaSection } from '@/features/authFiles/components/AuthFileQuotaSection';
+import { QuotaSummary } from '@/features/quota/components/QuotaSummary';
 import { AuthFileCooldownSection } from './AuthFileCooldownSection';
 import { getSiwcBindingStatus, supportsSiwcBinding } from '@/features/oauth/siwcBinding';
 import { SiwcStatusBadge } from '@/features/oauth/components/SiwcStatusBadge';
@@ -56,6 +58,8 @@ export type AuthFileOrderControls = {
 export type AuthFileCardProps = {
   file: AuthFileItem;
   compact: boolean;
+  /** Display-only: masks the credential's email in text and tooltips. */
+  maskEmail: boolean;
   selected: boolean;
   resolvedTheme: ResolvedTheme;
   disableControls: boolean;
@@ -87,6 +91,7 @@ export function AuthFileCard(props: AuthFileCardProps) {
   const {
     file,
     compact,
+    maskEmail: shouldMaskEmail,
     selected,
     resolvedTheme,
     disableControls,
@@ -120,7 +125,7 @@ export function AuthFileCard(props: AuthFileCardProps) {
   const typeColor = getTypeColor(providerKey, resolvedTheme);
 
   const quotaType = resolveAuthFileQuotaType(file, quotaFilterType);
-  const showQuotaLayout = Boolean(quotaType) && !isRuntimeOnly && !compact;
+  const showQuotaLayout = Boolean(quotaType) && !isRuntimeOnly;
 
   const successCount = file.successCount ?? 0;
   const failureCount = file.failureCount ?? 0;
@@ -137,7 +142,9 @@ export function AuthFileCard(props: AuthFileCardProps) {
   const weightValue = Number.isSafeInteger(file.weight) ? file.weight : undefined;
   const noteValue = typeof file.note === 'string' ? file.note.trim() : '';
   // Lead with account identity and use the file name as secondary text.
-  const identity = deriveAuthFileIdentity(file);
+  const derivedIdentity = deriveAuthFileIdentity(file);
+  const identity = shouldMaskEmail ? maskAuthFileIdentity(derivedIdentity, file) : derivedIdentity;
+  const shownName = shouldMaskEmail ? maskEmailsIn(file.name, [file.email]) : file.name;
   const siwcExpires = file.siwcExpiresAt
     ? formatDateTimeValue(file.siwcExpiresAt, i18n.language)
     : '';
@@ -183,7 +190,7 @@ export function AuthFileCard(props: AuthFileCardProps) {
             onChange={() => onToggleSelect(file.name)}
             className={styles.selection}
             ariaLabel={t('auth_files.card_select', { name: file.name })}
-            title={t('auth_files.card_select', { name: file.name })}
+            title={t('auth_files.card_select', { name: shownName })}
           />
         )}
         <h3 className={styles.identity}>
@@ -246,56 +253,62 @@ export function AuthFileCard(props: AuthFileCardProps) {
         onReset={authIndexKey ? () => onCooldownReset(file) : undefined}
       />
 
-      <div className={styles.health}>
-        <div className={styles.healthHead}>
-          <span className={styles.healthLabel}>{t('auth_files.card_requests')}</span>
-          <span className={styles.healthCounts}>
-            <span
-              className={`${styles.countOk} ${successCount > 0 ? styles.countLive : ''}`}
-              title={t('stats.success')}
-            >
-              {t('stats.success')} {successCount}
-            </span>
-            <span
-              className={`${styles.countFail} ${failureCount > 0 ? styles.countLive : ''}`}
-              title={t('stats.failure')}
-            >
-              {t('stats.failure')} {failureCount}
-            </span>
-          </span>
-        </div>
-        <ProviderStatusBar statusData={statusData} styles={styles} />
-      </div>
+      {!compact && (
+        <>
+          <div className={styles.health}>
+            <div className={styles.healthHead}>
+              <span className={styles.healthLabel}>{t('auth_files.card_requests')}</span>
+              <span className={styles.healthCounts}>
+                <span
+                  className={`${styles.countOk} ${successCount > 0 ? styles.countLive : ''}`}
+                  title={t('stats.success')}
+                >
+                  {t('stats.success')} {successCount}
+                </span>
+                <span
+                  className={`${styles.countFail} ${failureCount > 0 ? styles.countLive : ''}`}
+                  title={t('stats.failure')}
+                >
+                  {t('stats.failure')} {failureCount}
+                </span>
+              </span>
+            </div>
+            <ProviderStatusBar statusData={statusData} styles={styles} />
+          </div>
 
-      <div className={styles.metaRow}>
-        <span title={t('auth_files.file_size')}>{file.size ? formatFileSize(file.size) : '-'}</span>
-        <span className={styles.metaDivider} aria-hidden="true">
-          ·
-        </span>
-        <span title={t('auth_files.file_modified')}>{formatModified(file)}</span>
-        {priorityValue !== undefined && (
-          <>
+          <div className={styles.metaRow}>
+            <span title={t('auth_files.file_size')}>
+              {file.size ? formatFileSize(file.size) : '-'}
+            </span>
             <span className={styles.metaDivider} aria-hidden="true">
               ·
             </span>
-            <span className={styles.metaPriority} title={t('auth_files.priority_hint')}>
-              <span className={styles.metaMetricLabel}>{t('auth_files.priority_display')}</span>
-              <span>{priorityValue}</span>
-            </span>
-          </>
-        )}
-        {weightValue !== undefined && (
-          <>
-            <span className={styles.metaDivider} aria-hidden="true">
-              ·
-            </span>
-            <span className={styles.metaWeight} title={t('auth_files.weight_tooltip')}>
-              <span className={styles.metaMetricLabel}>{t('auth_files.weight_display')}</span>
-              <span>{weightValue}</span>
-            </span>
-          </>
-        )}
-      </div>
+            <span title={t('auth_files.file_modified')}>{formatModified(file)}</span>
+            {priorityValue !== undefined && (
+              <>
+                <span className={styles.metaDivider} aria-hidden="true">
+                  ·
+                </span>
+                <span className={styles.metaPriority} title={t('auth_files.priority_hint')}>
+                  <span className={styles.metaMetricLabel}>{t('auth_files.priority_display')}</span>
+                  <span>{priorityValue}</span>
+                </span>
+              </>
+            )}
+            {weightValue !== undefined && (
+              <>
+                <span className={styles.metaDivider} aria-hidden="true">
+                  ·
+                </span>
+                <span className={styles.metaWeight} title={t('auth_files.weight_tooltip')}>
+                  <span className={styles.metaMetricLabel}>{t('auth_files.weight_display')}</span>
+                  <span>{weightValue}</span>
+                </span>
+              </>
+            )}
+          </div>
+        </>
+      )}
 
       {supportsSiwcBinding(file) && (
         <div className={styles.siwcRow}>
@@ -308,7 +321,10 @@ export function AuthFileCard(props: AuthFileCardProps) {
         </div>
       )}
 
-      {showQuotaLayout && quotaType && (
+      {showQuotaLayout && quotaType && compact && (
+        <QuotaSummary file={file} type={quotaType} disableControls={disableControls} />
+      )}
+      {showQuotaLayout && quotaType && !compact && (
         <AuthFileQuotaSection file={file} quotaType={quotaType} disableControls={disableControls} />
       )}
 

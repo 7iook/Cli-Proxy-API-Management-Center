@@ -13,13 +13,14 @@ import { META_CONFIG } from './providers/meta/data';
 import { PLUGIN_CONFIG } from './providers/plugin/data';
 import { XAI_CONFIG } from './providers/xai/data';
 import type { QuotaProviderType } from './providers/types';
+import { QUOTA_TAB_ORDER, getQuotaRankPlan, type QuotaTabId } from './constants';
 import {
-  QUOTA_TAB_ORDER,
-  getQuotaRemainingSortSpec,
-  type QuotaSortMode,
-  type QuotaTabId,
-} from './constants';
-import { sortByQuotaKey, type QuotaSortKey, type QuotaWindowKind } from './quotaSortKey';
+  sortByRankKey,
+  type QuotaRankKey,
+  type QuotaRankMetric,
+  type QuotaWindowKind,
+} from './quotaSortKey';
+import type { QuotaSort } from '@/features/preferences/schema';
 
 const QUOTA_FILTER_MAP: Record<QuotaProviderType, (file: AuthFileItem) => boolean> = {
   antigravity: ANTIGRAVITY_CONFIG.filterFn,
@@ -105,10 +106,10 @@ export function filterEntriesBySearch(entries: QuotaFileEntry[], search: string)
  */
 export function sortQuotaEntries(
   entries: QuotaFileEntry[],
-  mode: QuotaSortMode,
+  sort: QuotaSort,
   resolveNextRecoveryMs: (entry: QuotaFileEntry) => number | null
 ): QuotaFileEntry[] {
-  if (mode !== 'soonest') return [...entries];
+  if (sort.field !== 'soonest') return [...entries];
 
   // Decorate once — resolving pokes at provider-shaped state per entry.
   return entries
@@ -123,17 +124,21 @@ export function sortQuotaEntries(
 }
 
 /**
- * Orders entries by remaining 5-hour / weekly quota. Entries without a value
- * sink to the bottom whatever the direction. Other modes return a copy.
+ * Orders entries by remaining 5-hour / weekly quota or by the next weekly
+ * reset. Entries without a value sink to the bottom whatever the direction.
+ * Other fields return a copy.
  */
-export function sortQuotaEntriesByRemaining(
+export function sortQuotaEntriesByRank(
   entries: QuotaFileEntry[],
-  mode: QuotaSortMode,
-  resolveKey: (entry: QuotaFileEntry, kind: QuotaWindowKind) => QuotaSortKey
+  sort: QuotaSort,
+  resolveRank: (
+    entry: QuotaFileEntry,
+    plan: { kind: QuotaWindowKind; metric: QuotaRankMetric }
+  ) => QuotaRankKey
 ): QuotaFileEntry[] {
-  const spec = getQuotaRemainingSortSpec(mode);
-  if (!spec) return [...entries];
-  return sortByQuotaKey(entries, (entry) => resolveKey(entry, spec.kind), spec.direction);
+  const plan = getQuotaRankPlan(sort.field);
+  if (!plan) return [...entries];
+  return sortByRankKey(entries, (entry) => resolveRank(entry, plan), sort.direction);
 }
 
 export function buildTabCounts(entries: QuotaFileEntry[]): Record<string, number> {

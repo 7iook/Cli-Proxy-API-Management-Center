@@ -119,32 +119,19 @@
   }
 }
 
-.sort {
+.controls {
+  --sort-control-size: 36px;
+  --toolbar-control-height: 36px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
   flex: 0 0 auto;
-  min-width: 148px;
   max-width: 100%;
-
-  button[aria-haspopup='listbox'] {
-    height: 36px;
-    border-color: transparent;
-    border-radius: 10px;
-    background: transparent;
-    box-shadow: none;
-    color: var(--text-secondary);
-
-    &:focus-visible,
-    &[aria-expanded='true'] {
-      outline: 2px solid var(--primary-color);
-      outline-offset: 2px;
-      background: var(--bg-secondary);
-      color: var(--text-primary);
-    }
-  }
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .clearSearch:hover,
-  .sort button[aria-haspopup='listbox']:hover {
+  .clearSearch:hover {
     background: var(--bg-tertiary);
     color: var(--text-primary);
   }
@@ -167,8 +154,8 @@
     height: 36px;
   }
 
-  .sort button[aria-haspopup='listbox'] {
-    height: 40px;
+  .controls {
+    --toolbar-control-height: 40px;
   }
 }
 
@@ -192,6 +179,11 @@
   gap: 16px;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
   align-items: stretch;
+}
+
+.gridCompact {
+  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
 }
 
 /* ---------- 分页 ---------- */

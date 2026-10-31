@@ -5,7 +5,12 @@ import { Button } from '@/components/ui/Button';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { SelectionCheckbox } from '@/components/ui/SelectionCheckbox';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
+import { Select } from '@/components/ui/Select';
 import {
+  IconChevronDown,
+  IconChevronUp,
+  IconChevronsDown,
+  IconChevronsUp,
   IconDownload,
   IconInfo,
   IconModelCluster,
@@ -15,6 +20,8 @@ import {
 } from '@/components/ui/icons';
 import { ProviderStatusBar } from '@/components/providers/ProviderStatusBar';
 import type { AuthFileItem } from '@/types';
+import type { AccountGroup } from '@/services/api/accountGroups';
+import { DEFAULT_GROUP_COLOR, getFileGroup } from '@/features/accountGroups/logic';
 import { statusBarDataFromRecentRequests } from '@/utils/recentRequests';
 import { formatDateTimeValue, formatFileSize } from '@/utils/format';
 import {
@@ -38,6 +45,14 @@ import { getSiwcBindingStatus, supportsSiwcBinding } from '@/features/oauth/siwc
 import { SiwcStatusBadge } from '@/features/oauth/components/SiwcStatusBadge';
 import styles from './AuthFileCard.module.scss';
 
+export type AuthFileMoveAction = 'top' | 'up' | 'down' | 'bottom';
+
+export type AuthFileOrderControls = {
+  isFirst: boolean;
+  isLast: boolean;
+  onMove: (file: AuthFileItem, action: AuthFileMoveAction) => void;
+};
+
 export type AuthFileCardProps = {
   file: AuthFileItem;
   compact: boolean;
@@ -60,6 +75,11 @@ export type AuthFileCardProps = {
   onDelete: (name: string) => void;
   onToggleStatus: (file: AuthFileItem, enabled: boolean) => void;
   onToggleSelect: (name: string) => void;
+  /** Present only when the backend supports account groups. */
+  groups?: AccountGroup[];
+  onAssignGroup?: (file: AuthFileItem, groupId: string) => void;
+  /** Present only in custom sort mode. */
+  orderControls?: AuthFileOrderControls;
 };
 
 export function AuthFileCard(props: AuthFileCardProps) {
@@ -85,6 +105,9 @@ export function AuthFileCard(props: AuthFileCardProps) {
     onDelete,
     onToggleStatus,
     onToggleSelect,
+    groups,
+    onAssignGroup,
+    orderControls,
   } = props;
 
   const isRuntimeOnly = isRuntimeOnlyAuthFile(file);
@@ -119,20 +142,36 @@ export function AuthFileCard(props: AuthFileCardProps) {
     ? formatDateTimeValue(file.siwcExpiresAt, i18n.language)
     : '';
 
+  const group = groups ? getFileGroup(file, groups) : null;
+  const groupColor = group ? (group.color ?? DEFAULT_GROUP_COLOR) : undefined;
+  // Runtime-only / config / plugin-virtual files cannot carry display metadata.
+  const showOrganize =
+    !isRuntimeOnly && (Boolean(groups && onAssignGroup) || Boolean(orderControls));
+  const groupOptions = groups
+    ? [
+        { value: '', label: t('account_groups.card_ungrouped') },
+        ...groups.map((item) => ({ value: item.id, label: item.name })),
+      ]
+    : [];
+
   // Capture the entrance delay once so subsequent updates do not interrupt it.
   const [mountEntranceDelayMs] = useState<number | null>(entranceDelayMs ?? null);
   const cardClasses = [
     styles.card,
     compact ? styles.cardCompact : '',
     selected ? styles.cardSelected : '',
+    group ? styles.cardGrouped : '',
     file.disabled === true ? styles.cardDisabled : '',
     mountEntranceDelayMs != null ? styles.cardEnter : '',
   ]
     .filter(Boolean)
     .join(' ');
   const cardStyle =
-    mountEntranceDelayMs != null
-      ? ({ '--card-delay': `${mountEntranceDelayMs}ms` } as CSSProperties)
+    mountEntranceDelayMs != null || groupColor
+      ? ({
+          ...(mountEntranceDelayMs != null ? { '--card-delay': `${mountEntranceDelayMs}ms` } : {}),
+          ...(groupColor ? { '--group-color': groupColor } : {}),
+        } as CSSProperties)
       : undefined;
 
   return (
@@ -173,6 +212,13 @@ export function AuthFileCard(props: AuthFileCardProps) {
       {identity.secondary && (
         <p className={styles.fileName} title={identity.fullName}>
           {identity.secondary}
+        </p>
+      )}
+
+      {group && (
+        <p className={styles.groupBadge} title={group.name}>
+          <span className={styles.groupDot} aria-hidden="true" />
+          <span className={styles.groupName}>{group.name}</span>
         </p>
       )}
 
@@ -264,6 +310,53 @@ export function AuthFileCard(props: AuthFileCardProps) {
 
       {showQuotaLayout && quotaType && (
         <AuthFileQuotaSection file={file} quotaType={quotaType} disableControls={disableControls} />
+      )}
+
+      {showOrganize && (
+        <div className={styles.organize}>
+          {groups && onAssignGroup && (
+            <div className={styles.groupSelect}>
+              <Select
+                value={file.ui?.group && group ? group.id : ''}
+                options={groupOptions}
+                onChange={(value) => onAssignGroup(file, value)}
+                ariaLabel={t('account_groups.card_group_label', { name: file.name })}
+                disabled={disableControls}
+                size="sm"
+                fullWidth
+              />
+            </div>
+          )}
+          {orderControls && (
+            <div
+              className={styles.orderActions}
+              role="group"
+              aria-label={t('auth_files.order_label')}
+            >
+              {(
+                [
+                  ['top', IconChevronsUp, orderControls.isFirst],
+                  ['up', IconChevronUp, orderControls.isFirst],
+                  ['down', IconChevronDown, orderControls.isLast],
+                  ['bottom', IconChevronsDown, orderControls.isLast],
+                ] as const
+              ).map(([action, Icon, atEdge]) => (
+                <Button
+                  key={action}
+                  variant="ghost"
+                  size="sm"
+                  className={styles.orderButton}
+                  title={t(`auth_files.order_${action}`)}
+                  aria-label={t(`auth_files.order_${action}`)}
+                  disabled={disableControls || atEdge}
+                  onClick={() => orderControls.onMove(file, action)}
+                >
+                  <Icon size={14} />
+                </Button>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       <footer className={styles.actions}>

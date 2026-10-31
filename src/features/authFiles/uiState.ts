@@ -1,4 +1,13 @@
-export const AUTH_FILES_SORT_MODES = ['default', 'az', 'priority'] as const;
+export const AUTH_FILES_SORT_MODES = [
+  'default',
+  'az',
+  'priority',
+  'fiveHourAsc',
+  'fiveHourDesc',
+  'weeklyAsc',
+  'weeklyDesc',
+  'custom',
+] as const;
 export const AUTH_FILES_STATUS_FILTER_MODES = [
   'all',
   'enabled',
@@ -21,6 +30,8 @@ export type AuthFilesUiState = {
   regularPageSize?: number;
   compactPageSize?: number;
   sortMode?: AuthFilesSortMode;
+  /** 'all' | 'ungrouped' | group id */
+  groupFilter?: string;
 };
 
 const AUTH_FILES_UI_STATE_KEY = 'authFilesPage.uiState';

@@ -1,10 +1,13 @@
 import { describe, expect, test } from 'bun:test';
 import {
   buildWildcardSearch,
+  collectMissingQuotaEntries,
+  createAuthFileQuotaKeyResolver,
   matchesAuthFileSearch,
   resolveAuthFileQuotaType,
   sortAuthFiles,
 } from '../src/features/authFiles/logic';
+import type { QuotaSortKey } from '../src/features/quota/quotaSortKey';
 import type { AuthFileItem } from '../src/types';
 
 const authFile = (overrides: Partial<AuthFileItem> = {}): AuthFileItem => ({
@@ -214,5 +217,93 @@ describe('sortAuthFiles', () => {
       'b.json',
       'a.json',
     ]);
+  });
+});
+
+describe('group name search', () => {
+  test('matches the group name only when provided', () => {
+    const file = authFile({ name: 'x.json' });
+    expect(matchesAuthFileSearch(file, 'pro', null, 'Pro Team')).toBe(true);
+    expect(matchesAuthFileSearch(file, 'pro', null)).toBe(false);
+    expect(matchesAuthFileSearch(file, 'p*team', buildWildcardSearch('p*team'), 'Pro Team')).toBe(
+      true
+    );
+  });
+});
+
+describe('sortAuthFiles custom and quota modes', () => {
+  const names = (files: AuthFileItem[]) => files.map((file) => file.name);
+  const ranked = [
+    authFile({ name: 'a.json', ui: { order: 30 } }),
+    authFile({ name: 'b.json' }),
+    authFile({ name: 'c.json', ui: { order: -5 } }),
+    authFile({ name: 'd.json' }),
+  ];
+
+  test('custom puts ranked files first by order, the rest in default order', () => {
+    expect(names(sortAuthFiles(ranked, 'custom'))).toEqual([
+      'c.json',
+      'a.json',
+      'b.json',
+      'd.json',
+    ]);
+  });
+
+  test('quota modes use the injected resolver and sink missing/na files in both directions', () => {
+    const keys: Record<string, QuotaSortKey> = {
+      'a.json': { status: 'value', remaining: 80, resetAtMs: null, reset: false },
+      'b.json': { status: 'missing' },
+      'c.json': { status: 'value', remaining: 10, resetAtMs: null, reset: false },
+      'd.json': { status: 'na' },
+    };
+    const kinds: string[] = [];
+    const resolve = (file: AuthFileItem, kind: string): QuotaSortKey => {
+      kinds.push(kind);
+      return keys[file.name];
+    };
+    expect(names(sortAuthFiles(ranked, 'fiveHourAsc', resolve))).toEqual([
+      'c.json',
+      'a.json',
+      'b.json',
+      'd.json',
+    ]);
+    expect(names(sortAuthFiles(ranked, 'weeklyDesc', resolve))).toEqual([
+      'a.json',
+      'c.json',
+      'b.json',
+      'd.json',
+    ]);
+    expect(kinds).toContain('fiveHour');
+    expect(kinds).toContain('weekly');
+  });
+
+  test('quota modes without a resolver fall back to the default order', () => {
+    expect(names(sortAuthFiles(ranked, 'fiveHourAsc'))).toEqual(names(sortAuthFiles(ranked, 'default')));
+  });
+
+  test('createAuthFileQuotaKeyResolver reads the store state for the file provider', () => {
+    const claude = authFile({ name: 'cl.json', type: 'claude' });
+    const resolve = createAuthFileQuotaKeyResolver((type, key) => {
+      expect(type).toBe('claude');
+      expect(key).toBe('cl.json');
+      return {
+        status: 'success',
+        windows: [{ id: 'five-hour', usedPercent: 25, resetAtMs: null, periodHours: 5 }],
+      };
+    }, 1_000);
+    expect(resolve(claude, 'fiveHour')).toMatchObject({ status: 'value', remaining: 75 });
+    expect(resolve(authFile({ name: 'x.json', type: 'unknown-provider' }), 'fiveHour')).toEqual({
+      status: 'na',
+    });
+  });
+
+  test('collectMissingQuotaEntries only reports quota-capable files in quota modes', () => {
+    const files = [authFile({ name: 'a.json', type: 'codex' }), authFile({ name: 'b.json', type: 'codex' })];
+    const resolve = (file: AuthFileItem): QuotaSortKey =>
+      file.name === 'a.json' ? { status: 'missing' } : { status: 'na' };
+    expect(collectMissingQuotaEntries(files, 'weeklyAsc', resolve).map((e) => e.file.name)).toEqual([
+      'a.json',
+    ]);
+    expect(collectMissingQuotaEntries(files, 'default', resolve)).toEqual([]);
   });
 });

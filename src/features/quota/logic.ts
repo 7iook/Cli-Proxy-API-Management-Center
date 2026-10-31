@@ -13,7 +13,13 @@ import { META_CONFIG } from './providers/meta/data';
 import { PLUGIN_CONFIG } from './providers/plugin/data';
 import { XAI_CONFIG } from './providers/xai/data';
 import type { QuotaProviderType } from './providers/types';
-import { QUOTA_TAB_ORDER, type QuotaSortMode, type QuotaTabId } from './constants';
+import {
+  QUOTA_TAB_ORDER,
+  getQuotaRemainingSortSpec,
+  type QuotaSortMode,
+  type QuotaTabId,
+} from './constants';
+import { sortByQuotaKey, type QuotaSortKey, type QuotaWindowKind } from './quotaSortKey';
 
 const QUOTA_FILTER_MAP: Record<QuotaProviderType, (file: AuthFileItem) => boolean> = {
   antigravity: ANTIGRAVITY_CONFIG.filterFn,
@@ -114,6 +120,20 @@ export function sortQuotaEntries(
       return a.atMs - b.atMs || a.index - b.index;
     })
     .map((decorated) => decorated.entry);
+}
+
+/**
+ * Orders entries by remaining 5-hour / weekly quota. Entries without a value
+ * sink to the bottom whatever the direction. Other modes return a copy.
+ */
+export function sortQuotaEntriesByRemaining(
+  entries: QuotaFileEntry[],
+  mode: QuotaSortMode,
+  resolveKey: (entry: QuotaFileEntry, kind: QuotaWindowKind) => QuotaSortKey
+): QuotaFileEntry[] {
+  const spec = getQuotaRemainingSortSpec(mode);
+  if (!spec) return [...entries];
+  return sortByQuotaKey(entries, (entry) => resolveKey(entry, spec.kind), spec.direction);
 }
 
 export function buildTabCounts(entries: QuotaFileEntry[]): Record<string, number> {

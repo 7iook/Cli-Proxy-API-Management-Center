@@ -63,6 +63,14 @@ describe('quota ui state', () => {
     expect(readQuotaUiState()).toEqual({ tab: 'kimi', sortMode: 'soonest' });
   });
 
+  test('keeps the group filter and the new remaining-quota sort modes', () => {
+    writeQuotaUiState({ sortMode: 'fiveHourAsc', groupFilter: 'g-1' });
+    writeQuotaUiState({ tab: 'codex' });
+    expect(readQuotaUiState()).toEqual({ tab: 'codex', sortMode: 'fiveHourAsc', groupFilter: 'g-1' });
+    storage.setItem(KEY, JSON.stringify({ groupFilter: 5 }));
+    expect(readQuotaUiState()?.groupFilter).toBeUndefined();
+  });
+
   test('rejects values that are not part of the current contract', () => {
     storage.setItem(KEY, JSON.stringify({ tab: 'not-a-tab', sortMode: 'by-vibes' }));
     expect(readQuotaUiState()).toEqual({ tab: undefined, sortMode: undefined });

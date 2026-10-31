@@ -39,6 +39,11 @@ export interface AuthFileCooldownSnapshot {
   records: AuthFileCooldown[] | null;
 }
 
+export interface AuthFileUiMeta {
+  group?: string;
+  order?: number;
+}
+
 export interface AuthFileItem {
   name: string;
   siwcBindSupported?: boolean;
@@ -72,6 +77,8 @@ export interface AuthFileItem {
   priority?: number;
   weight?: number;
   note?: string;
+  /** Display-only metadata: group id and manual order rank. */
+  ui?: AuthFileUiMeta;
   success?: unknown;
   failed?: unknown;
   /** Cumulative success/failure counts normalized by the API boundary. */

@@ -9,6 +9,7 @@ export { useAuthStore } from './useAuthStore';
 export { useLoginTransitionStore } from './useLoginTransitionStore';
 export { useConfigStore } from './useConfigStore';
 export { useModelsStore } from './useModelsStore';
+export { useAccountGroupsStore } from './useAccountGroupsStore';
 export {
   captureQuotaCacheGeneration,
   commitIfQuotaCacheCurrent,

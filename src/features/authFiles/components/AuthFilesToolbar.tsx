@@ -30,6 +30,7 @@ export type AuthFilesToolbarProps = {
   compactMode: boolean;
   onCompactModeChange: (value: boolean) => void;
   deleteLabel: string;
+  deleteTitle?: string;
   deleteDisabled: boolean;
   deleteLoading: boolean;
   onDelete: () => void;
@@ -55,6 +56,7 @@ export function AuthFilesToolbar(props: AuthFilesToolbarProps) {
     compactMode,
     onCompactModeChange,
     deleteLabel,
+    deleteTitle,
     deleteDisabled,
     deleteLoading,
     onDelete,
@@ -182,6 +184,7 @@ export function AuthFilesToolbar(props: AuthFilesToolbarProps) {
         className={styles.deleteAction}
         onClick={onDelete}
         disabled={deleteDisabled}
+        title={deleteTitle}
       >
         {deleteLoading ? <LoadingSpinner size={13} /> : <IconTrash2 size={14} />}
         {deleteLabel}

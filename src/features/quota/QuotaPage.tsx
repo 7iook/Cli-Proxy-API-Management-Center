@@ -19,10 +19,18 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { useNow } from '@/hooks/useNow';
 import { useRevealGroup } from '@/hooks/motion';
-import { useAuthStore, useQuotaStore, useThemeStore } from '@/stores';
+import { useAccountGroupsStore, useAuthStore, useQuotaStore, useThemeStore } from '@/stores';
 import type { AuthFileItem, ResolvedTheme } from '@/types';
 import { getQuotaCacheKey } from '@/utils/quota/identity';
 import { ProviderTabs } from '@/features/authFiles/components/ProviderTabs';
+import { GroupChipRow } from '@/features/accountGroups/components/GroupChipRow';
+import { GroupManager } from '@/features/accountGroups/components/GroupManager';
+import {
+  GROUP_FILTER_ALL,
+  countFilesByGroup,
+  filterFilesByGroup,
+  normalizeGroupFilter,
+} from '@/features/accountGroups/logic';
 import { QuotaHeader } from './components/QuotaHeader';
 import { QuotaCard } from './components/QuotaCard';
 import { QuotaTimeline } from './components/QuotaTimeline';
@@ -31,6 +39,7 @@ import {
   QUOTA_PAGE_SIZE,
   QUOTA_SORT_MODES,
   QUOTA_TAB_ORDER,
+  getQuotaRemainingSortSpec,
   type QuotaSortMode,
   type QuotaTabId,
 } from './constants';
@@ -42,14 +51,17 @@ import {
   filterEntriesBySearch,
   paginate,
   sortQuotaEntries,
+  sortQuotaEntriesByRemaining,
   type QuotaFileEntry,
 } from './logic';
 import { nextRecoveryMs } from './resetSchedule';
+import { resolveQuotaSortKey } from './quotaSortKey';
 import { QUOTA_ADAPTERS, getQuotaSetter, type QuotaCardState } from './providers';
 import type { QuotaProviderType } from './providers/types';
 import { useDevinQuotaAutoLoad } from './providers/devin/useDevinQuotaAutoLoad';
 import { useQuotaActions } from './hooks/useQuotaActions';
 import { useQuotaBatchLoader } from './hooks/useQuotaBatchLoader';
+import { useQuotaSortNow } from './hooks/useQuotaSortNow';
 import { readQuotaUiState, writeQuotaUiState } from './uiState';
 import styles from './QuotaPage.module.scss';
 
@@ -74,6 +86,15 @@ export function QuotaPage() {
   const [sortMode, setSortMode] = useState<QuotaSortMode>(
     () => readQuotaUiState()?.sortMode ?? 'default'
   );
+  const [groupFilter, setGroupFilter] = useState<string>(
+    () => readQuotaUiState()?.groupFilter ?? GROUP_FILTER_ALL
+  );
+  const [groupManagerOpen, setGroupManagerOpen] = useState(false);
+  const groups = useAccountGroupsStore((state) => state.groups);
+  const groupsSupported = useAccountGroupsStore((state) => state.supported);
+  const loadGroups = useAccountGroupsStore((state) => state.load);
+  const saveGroups = useAccountGroupsStore((state) => state.save);
+  const groupsEnabled = groupsSupported === true;
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -114,7 +135,15 @@ export function QuotaPage() {
     }
   }, [connectionStatus, sessionGeneration, t]);
 
-  useHeaderRefresh(loadFiles);
+  useEffect(() => {
+    void loadGroups();
+  }, [loadGroups]);
+
+  const handleHeaderRefresh = useCallback(async () => {
+    await Promise.all([loadFiles(), loadGroups()]);
+  }, [loadFiles, loadGroups]);
+
+  useHeaderRefresh(handleHeaderRefresh);
 
   useEffect(() => {
     void loadFiles();
@@ -169,15 +198,37 @@ export function QuotaPage() {
 
   // 只在「最快恢复优先」下订阅分钟时钟。默认序下不门控的话，pageItems 每分钟
   // 换一次身份，会反复空转下面那个「刷新全部」的 loading 下降沿 effect。
-  const tick = useNow(sortMode !== 'default');
-  const sortNow = sortMode === 'default' ? 0 : tick;
+  const tick = useNow(sortMode === 'soonest');
+  const sortNow = sortMode === 'soonest' ? tick : 0;
 
   const entries = useMemo(() => classifyQuotaFiles(files), [files]);
   const tabCounts = useMemo(() => buildTabCounts(entries), [entries]);
-  const filteredEntries = useMemo(
-    () => filterEntriesBySearch(filterEntriesByTab(entries, tab), search),
-    [entries, tab, search]
+  const activeGroupFilter = groupsEnabled
+    ? normalizeGroupFilter(groupFilter, groups)
+    : GROUP_FILTER_ALL;
+  const groupCounts = useMemo(
+    () =>
+      countFilesByGroup(
+        entries.map((entry) => entry.file),
+        groups
+      ),
+    [entries, groups]
   );
+  const filteredEntries = useMemo(() => {
+    const byTab = filterEntriesByTab(entries, tab);
+    let byGroup = byTab;
+    if (activeGroupFilter !== GROUP_FILTER_ALL) {
+      const kept = new Set(
+        filterFilesByGroup(
+          byTab.map((entry) => entry.file),
+          activeGroupFilter,
+          groups
+        )
+      );
+      byGroup = byTab.filter((entry) => kept.has(entry.file));
+    }
+    return filterEntriesBySearch(byGroup, search);
+  }, [activeGroupFilter, entries, groups, search, tab]);
   const handleSearchChange = useCallback((value: string) => {
     setSearch(value);
     setPage(1);
@@ -188,9 +239,18 @@ export function QuotaPage() {
     [getQuota, sortNow]
   );
   // 排序在分页之前：否则「最快恢复」只在当前页内成立。
+  const remainingSortNow = useQuotaSortNow(
+    getQuotaRemainingSortSpec(sortMode) !== null,
+    quotaByType
+  );
   const sortedEntries = useMemo(
-    () => sortQuotaEntries(filteredEntries, sortMode, resolveNextRecovery),
-    [filteredEntries, sortMode, resolveNextRecovery]
+    () =>
+      getQuotaRemainingSortSpec(sortMode)
+        ? sortQuotaEntriesByRemaining(filteredEntries, sortMode, (entry, kind) =>
+            resolveQuotaSortKey(entry.type, getQuota(entry), kind, remainingSortNow)
+          )
+        : sortQuotaEntries(filteredEntries, sortMode, resolveNextRecovery),
+    [filteredEntries, getQuota, remainingSortNow, sortMode, resolveNextRecovery]
   );
 
   const { pageItems, currentPage, totalPages } = useMemo(
@@ -203,6 +263,19 @@ export function QuotaPage() {
     setPage(1);
     writeQuotaUiState({ tab: next as QuotaTabId });
   }, []);
+
+  const handleGroupFilterChange = useCallback((next: string) => {
+    setGroupFilter(next);
+    setPage(1);
+    writeQuotaUiState({ groupFilter: next });
+  }, []);
+
+  const handleSaveGroups = useCallback(
+    async (next: Array<{ id: string; name: string; color?: string }>) => {
+      await saveGroups(next);
+    },
+    [saveGroups]
+  );
 
   const handleSortModeChange = useCallback((next: string) => {
     setSortMode(next as QuotaSortMode);
@@ -346,6 +419,17 @@ export function QuotaPage() {
           />
         </div>
 
+        {groupsEnabled && (
+          <GroupChipRow
+            groups={groups}
+            counts={groupCounts}
+            active={activeGroupFilter}
+            disabled={disableControls}
+            onChange={handleGroupFilterChange}
+            onManage={() => setGroupManagerOpen(true)}
+          />
+        )}
+
         <div className={styles.toolbar}>
           <div className={styles.search}>
             <IconSearch size={16} className={styles.searchIcon} aria-hidden="true" />
@@ -468,6 +552,15 @@ export function QuotaPage() {
               {t('auth_files.pagination_next')}
             </Button>
           </div>
+        )}
+
+        {groupsEnabled && (
+          <GroupManager
+            open={groupManagerOpen}
+            groups={groups}
+            onClose={() => setGroupManagerOpen(false)}
+            onSave={handleSaveGroups}
+          />
         )}
 
         {/* 时间线只比较当前页凭证，避免大量凭证一次性生成无界泳道。 */}

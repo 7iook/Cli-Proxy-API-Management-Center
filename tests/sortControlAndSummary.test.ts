@@ -66,7 +66,9 @@ describe('QuotaSummaryRows', () => {
     expect(html).toContain('40%');
     expect(html).toContain(i18n.t('quota_summary.five_hour'));
     expect(html).toContain(i18n.t('quota_summary.weekly'));
-    expect(html).toMatch(/reset|重置/i);
+    // absolute reset instant (like the normal view) plus a relative phrase
+    expect(html).toMatch(/\d{2}\/\d{2},? \d{2}:\d{2}/);
+    expect(html).toMatch(/in 2 hours|2 小时后/);
   });
 
   test('a missing window renders a dash and unloaded states render messages', () => {

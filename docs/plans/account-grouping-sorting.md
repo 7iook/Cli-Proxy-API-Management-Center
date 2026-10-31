@@ -3,6 +3,14 @@
 > 范围：仅优化管理面板中账号（认证文件 / 凭证）的组织、展示与查询体验。
 > 不涉及请求调度、账号轮换、负载均衡与 API Key 权限。
 
+> **实施更新（已落地，取代下文第二节中「分组注册表存 localStorage」的设计）**
+> - 每个账号只属于一个分组。
+> - 分组定义（含空分组）与分组顺序由后端持有：`config.yaml` 新增 v8 根节 `account-groups`（`id`/`name`/`color`，列表顺序即显示顺序），随现有配置持久化同步到 file/PG/git/对象存储。
+> - 接口（仅 v8）：`GET/PUT /v8/management/account-groups`（整表替换，删除分组时自动清除成员的 `ui.group`）、`POST /v8/management/account-groups/assign`（批量分配/移出）。
+> - 账号归属与手动顺序存于凭证 metadata `ui.group`（分组 id，改名不影响归属）与 `ui.order`（经现有 `PATCH /credentials/fields` 写入，`null` 删除），列表白名单回传 `ui`。
+> - 额度页本期同步支持分组筛选与 5h/周剩余排序。
+> - 旧后端（`GET account-groups` 返回 404）自动隐藏分组与自定义顺序入口。
+
 ## 一、现状评估
 
 ### 1. 前端（管理面板，`src/features/authFiles`）

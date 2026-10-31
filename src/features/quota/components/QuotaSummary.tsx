@@ -1,7 +1,8 @@
 /**
  * Compact quota: the 5-hour and weekly windows as two dense rows. Each row
  * is a label, a thin remaining-quota bar and the remaining percent, with the
- * reset time in small type under the bar ("5h ▬▬▬▬▭ 72% / resets in 2h"). `QuotaSummaryRows` renders from a quota
+ * reset instant on the label line ("5h  72% 10/31 20:50 · in 2h") above a
+ * full-width bar, mirroring the normal view. `QuotaSummaryRows` renders from a quota
  * state; `QuotaSummary` binds it to the store and adds a refresh button.
  */
 
@@ -9,7 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { IconRefreshCw } from '@/components/ui/icons';
 import { useNow } from '@/hooks/useNow';
 import type { AuthFileItem } from '@/types';
-import { formatRelativeInstant } from '@/utils/quota';
+import { formatInstantShort, formatRelativeInstant } from '@/utils/quota';
 import { QUOTA_ADAPTERS, type QuotaCardState } from '../providers';
 import type { QuotaProviderType } from '../providers/types';
 import { resolveQuotaResetKey, resolveQuotaSortKey, type QuotaWindowKind } from '../quotaSortKey';
@@ -64,6 +65,22 @@ export function QuotaSummaryRows({ type, quota }: QuotaSummaryRowsProps) {
         return (
           <div key={kind} className={styles.row} data-window={kind}>
             <span className={styles.label}>{label}</span>
+            <span className={styles.meta}>
+              <span className={`${styles.percent} ${tone?.percent ?? ''}`}>
+                {value === null ? '—' : `${value}%`}
+              </span>
+              {value !== null && reset.status === 'value' && (
+                <>
+                  <span className={styles.resetAt}>
+                    {reset.estimated ? '≈ ' : ''}
+                    {formatInstantShort(reset.atMs)}
+                  </span>
+                  <span className={styles.reset}>
+                    · {formatRelativeInstant(reset.atMs, nowMs, i18n.language)}
+                  </span>
+                </>
+              )}
+            </span>
             <span
               className={styles.track}
               role="progressbar"
@@ -76,17 +93,6 @@ export function QuotaSummaryRows({ type, quota }: QuotaSummaryRowsProps) {
                 <span className={`${styles.fill} ${tone?.fill ?? ''}`} style={{ width: `${clamped}%` }} />
               )}
             </span>
-            <span className={`${styles.percent} ${tone?.percent ?? ''}`}>
-              {value === null ? '—' : `${value}%`}
-            </span>
-            {value !== null && reset.status === 'value' && (
-              <span className={styles.reset}>
-                {reset.estimated ? '≈ ' : ''}
-                {t('quota_summary.resets', {
-                  relative: formatRelativeInstant(reset.atMs, nowMs, i18n.language),
-                })}
-              </span>
-            )}
           </div>
         );
       })}

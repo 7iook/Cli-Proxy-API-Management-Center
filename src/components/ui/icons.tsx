@@ -294,6 +294,24 @@ export function IconChevronDown({ size = 20, ...props }: IconProps) {
   );
 }
 
+export function IconChevronsUp({ size = 20, ...props }: IconProps) {
+  return (
+    <svg {...baseSvgProps} width={size} height={size} {...props}>
+      <path d="m17 11-5-5-5 5" />
+      <path d="m17 18-5-5-5 5" />
+    </svg>
+  );
+}
+
+export function IconChevronsDown({ size = 20, ...props }: IconProps) {
+  return (
+    <svg {...baseSvgProps} width={size} height={size} {...props}>
+      <path d="m7 6 5 5 5-5" />
+      <path d="m7 13 5 5 5-5" />
+    </svg>
+  );
+}
+
 export function IconChevronLeft({ size = 20, ...props }: IconProps) {
   return (
     <svg {...baseSvgProps} width={size} height={size} {...props}>

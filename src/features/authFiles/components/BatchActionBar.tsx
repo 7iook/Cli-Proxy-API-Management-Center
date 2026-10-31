@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { animate } from 'motion/mini';
 import { Button } from '@/components/ui/Button';
+import { Select } from '@/components/ui/Select';
+import type { AccountGroup } from '@/services/api/accountGroups';
 import { prefersReducedMotion } from '@/hooks/motion';
 import { useActionBarHeightVar } from '@/hooks/useActionBarHeightVar';
 import styles from './BatchActionBar.module.scss';
@@ -10,6 +12,8 @@ import styles from './BatchActionBar.module.scss';
 const easePower3Out = (progress: number) => 1 - (1 - progress) ** 4;
 const easePower2In = (progress: number) => progress ** 3;
 const BASE_TRANSFORM = 'translateX(-50%)';
+/** Select sentinel for "remove from group" (the API takes an empty group id). */
+const UNGROUP_VALUE = '__none__';
 const HIDDEN_TRANSFORM = 'translateX(-50%) translateY(56px)';
 
 export type BatchActionBarProps = {
@@ -26,6 +30,12 @@ export type BatchActionBarProps = {
   onEnable: () => void;
   onDisable: () => void;
   onDelete: () => void;
+  /** Present only when the backend supports account groups. */
+  groups?: AccountGroup[];
+  /** groupId '' removes the selection from its group. */
+  onAssignGroup?: (groupId: string) => void;
+  /** Present only when custom ordering is available. */
+  onMoveToTop?: () => void;
 };
 
 /**
@@ -49,6 +59,9 @@ export function BatchActionBar(props: BatchActionBarProps) {
     onEnable,
     onDisable,
     onDelete,
+    groups,
+    onAssignGroup,
+    onMoveToTop,
   } = props;
   const { t } = useTranslation();
 
@@ -197,6 +210,32 @@ export function BatchActionBar(props: BatchActionBarProps) {
           <Button variant="secondary" size="sm" onClick={onDisable} disabled={batchStatusDisabled}>
             {t('auth_files.batch_disable')}
           </Button>
+          {groups && onAssignGroup && (
+            <div className={styles.groupSelect}>
+              <Select
+                value=""
+                placeholder={t('auth_files.batch_group')}
+                ariaLabel={t('auth_files.batch_group')}
+                options={[
+                  { value: UNGROUP_VALUE, label: t('auth_files.batch_group_remove') },
+                  ...groups.map((group) => ({ value: group.id, label: group.name })),
+                ]}
+                onChange={(value) => onAssignGroup(value === UNGROUP_VALUE ? '' : value)}
+                disabled={disableControls || selectionCount === 0}
+                size="sm"
+              />
+            </div>
+          )}
+          {onMoveToTop && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={onMoveToTop}
+              disabled={disableControls || selectionCount === 0}
+            >
+              {t('auth_files.batch_move_top')}
+            </Button>
+          )}
           <Button
             variant="danger"
             size="sm"

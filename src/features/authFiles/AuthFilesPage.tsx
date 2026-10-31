@@ -10,6 +10,27 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { copyToClipboard } from '@/utils/clipboard';
 import { getQuotaCacheKey } from '@/utils/quota/identity';
+import { GroupChipRow } from '@/features/accountGroups/components/GroupChipRow';
+import { GroupManager } from '@/features/accountGroups/components/GroupManager';
+import {
+  GROUP_FILTER_ALL,
+  countFilesByGroup,
+  filterFilesByGroup,
+  normalizeGroupFilter,
+  removedGroupIds,
+} from '@/features/accountGroups/logic';
+import {
+  planMove,
+  planMoveToBottom,
+  planMoveToTop,
+  type OrderedItem,
+} from '@/features/authFiles/customOrder';
+import { getQuotaRemainingSortSpec } from '@/features/quota/constants';
+import { useQuotaBatchLoader } from '@/features/quota/hooks/useQuotaBatchLoader';
+import { useQuotaSortNow } from '@/features/quota/hooks/useQuotaSortNow';
+import type { AuthFileItem } from '@/types';
+import type { QuotaProviderType as QuotaCardProviderType } from '@/features/quota/providers/types';
+import type { QuotaCardState } from '@/features/quota/providers';
 import {
   QUOTA_PROVIDER_TYPES,
   clampCardPageSize,
@@ -21,7 +42,10 @@ import {
   type QuotaProviderType,
   type ResolvedTheme,
 } from '@/features/authFiles/constants';
-import { AuthFileCard } from '@/features/authFiles/components/AuthFileCard';
+import {
+  AuthFileCard,
+  type AuthFileMoveAction,
+} from '@/features/authFiles/components/AuthFileCard';
 import { AuthFileDetailsSheet } from '@/features/authFiles/components/AuthFileDetailsSheet';
 import { getAuthFileRefreshKey } from '@/features/authFiles/manualRefresh';
 import { AuthFileRefreshResults } from '@/features/authFiles/components/AuthFileRefreshResults';
@@ -36,6 +60,8 @@ import { VaultPulse } from '@/features/authFiles/components/VaultPulse';
 import { invalidateAuthFileDerivedCaches } from '@/features/authFiles/cacheInvalidation';
 import {
   buildWildcardSearch,
+  collectMissingQuotaEntries,
+  createAuthFileQuotaKeyResolver,
   matchesAuthFileSearch,
   sortAuthFiles,
 } from '@/features/authFiles/logic';
@@ -54,7 +80,13 @@ import {
   type AuthFilesStatusFilterMode,
   type AuthFilesSortMode,
 } from '@/features/authFiles/uiState';
-import { useAuthStore, useNotificationStore, useThemeStore } from '@/stores';
+import {
+  useAccountGroupsStore,
+  useAuthStore,
+  useNotificationStore,
+  useQuotaStore,
+  useThemeStore,
+} from '@/stores';
 import styles from './AuthFilesPage.module.scss';
 
 const DEFAULT_REGULAR_PAGE_SIZE = 9;
@@ -98,7 +130,17 @@ export function AuthFilesPage() {
   const [pageSizeInput, setPageSizeInput] = useState('9');
   const [viewMode, setViewMode] = useState<'diagram' | 'list'>('list');
   const [sortMode, setSortMode] = useState<AuthFilesSortMode>('default');
+  const [groupFilter, setGroupFilter] = useState<string>(GROUP_FILTER_ALL);
+  const [groupManagerOpen, setGroupManagerOpen] = useState(false);
   const [uiStateHydrated, setUiStateHydrated] = useState(false);
+
+  const groups = useAccountGroupsStore((state) => state.groups);
+  const groupsSupported = useAccountGroupsStore((state) => state.supported);
+  const loadGroups = useAccountGroupsStore((state) => state.load);
+  const saveGroups = useAccountGroupsStore((state) => state.save);
+  const groupsEnabled = groupsSupported === true;
+  // Only an explicit 404 hides custom ordering; unknown keeps the persisted choice.
+  const customOrderEnabled = groupsSupported !== false;
 
   const {
     modelsModalOpen,
@@ -152,6 +194,9 @@ export function AuthFilesPage() {
     batchDownload,
     batchSetStatus,
     batchDelete,
+    batchAssignGroup,
+    applyOrderWrites,
+    clearGroupsLocally,
   } = useAuthFilesData({ onFilesMutated: invalidateDerivedCaches });
 
   const statusBarCache = useAuthFilesStatusBarCache(files);
@@ -255,6 +300,9 @@ export function AuthFilesPage() {
       if (isAuthFilesSortMode(persisted.sortMode)) {
         setSortMode(persisted.sortMode);
       }
+      if (typeof persisted.groupFilter === 'string' && persisted.groupFilter) {
+        setGroupFilter(persisted.groupFilter);
+      }
     }
 
     setUiStateHydrated(true);
@@ -275,12 +323,14 @@ export function AuthFilesPage() {
       regularPageSize: pageSizeByMode.regular,
       compactPageSize: pageSizeByMode.compact,
       sortMode,
+      groupFilter,
     });
     writePersistedAuthFilesCompactMode(compactMode);
   }, [
     compactMode,
     disabledOnly,
     filter,
+    groupFilter,
     page,
     pageSize,
     pageSizeByMode,
@@ -366,8 +416,13 @@ export function AuthFilesPage() {
   const initialLoadDoneRef = useRef(false);
 
   const handleHeaderRefresh = useCallback(async () => {
-    await Promise.all([loadFiles({ background: true }), loadExcluded(), loadModelAlias()]);
-  }, [loadFiles, loadExcluded, loadModelAlias]);
+    await Promise.all([
+      loadFiles({ background: true }),
+      loadExcluded(),
+      loadModelAlias(),
+      loadGroups(),
+    ]);
+  }, [loadFiles, loadExcluded, loadModelAlias, loadGroups]);
 
   useHeaderRefresh(handleHeaderRefresh);
 
@@ -377,7 +432,19 @@ export function AuthFilesPage() {
     initialLoadDoneRef.current = true;
     loadExcluded();
     loadModelAlias();
-  }, [isCurrentLayer, loadFiles, loadExcluded, loadModelAlias]);
+    void loadGroups();
+  }, [isCurrentLayer, loadFiles, loadExcluded, loadModelAlias, loadGroups]);
+
+  // A persisted group filter that no longer exists falls back to "all".
+  useEffect(() => {
+    if (!groupsEnabled) return;
+    const normalized = normalizeGroupFilter(groupFilter, groups);
+    if (normalized !== groupFilter) setGroupFilter(normalized);
+  }, [groupFilter, groups, groupsEnabled]);
+
+  const activeGroupFilter = groupsEnabled
+    ? normalizeGroupFilter(groupFilter, groups)
+    : GROUP_FILTER_ALL;
 
   useInterval(
     () => {
@@ -419,14 +486,22 @@ export function AuthFilesPage() {
     [t]
   );
 
+  // Ordered basic, quota, custom; the select has no section headers.
   const sortOptions = useMemo(
     () => [
       { value: 'default', label: t('auth_files.sort_default') },
       { value: 'az', label: t('auth_files.sort_az') },
       { value: 'priority', label: t('auth_files.sort_priority') },
+      { value: 'fiveHourDesc', label: t('auth_files.sort_fiveHourDesc') },
+      { value: 'fiveHourAsc', label: t('auth_files.sort_fiveHourAsc') },
+      { value: 'weeklyDesc', label: t('auth_files.sort_weeklyDesc') },
+      { value: 'weeklyAsc', label: t('auth_files.sort_weeklyAsc') },
+      ...(customOrderEnabled ? [{ value: 'custom', label: t('auth_files.sort_custom') }] : []),
     ],
-    [t]
+    [customOrderEnabled, t]
   );
+  const effectiveSortMode: AuthFilesSortMode =
+    sortMode === 'custom' && !customOrderEnabled ? 'default' : sortMode;
 
   const typeCounts = useMemo(() => {
     const counts: Record<string, number> = { all: filesMatchingStatusFilters.length };
@@ -438,20 +513,91 @@ export function AuthFilesPage() {
     return counts;
   }, [filesMatchingStatusFilters]);
 
+  const groupCounts = useMemo(
+    () => countFilesByGroup(filesMatchingStatusFilters, groups),
+    [filesMatchingStatusFilters, groups]
+  );
+  const groupNameById = useMemo(
+    () => new Map(groups.map((group) => [group.id, group.name])),
+    [groups]
+  );
+
   const normalizedSearch = search.trim();
   const wildcardSearch = useMemo(() => buildWildcardSearch(normalizedSearch), [normalizedSearch]);
 
   const filtered = useMemo(
     () =>
-      filesMatchingStatusFilters.filter((item) => {
+      filterFilesByGroup(filesMatchingStatusFilters, activeGroupFilter, groups).filter((item) => {
         const type = normalizeProviderKey(String(item.type ?? item.provider ?? ''));
         const matchType = normalizedFilter === 'all' || type === normalizedFilter;
-        return matchType && matchesAuthFileSearch(item, normalizedSearch, wildcardSearch);
+        const groupName = groupsEnabled ? groupNameById.get(item.ui?.group ?? '') : undefined;
+        return (
+          matchType && matchesAuthFileSearch(item, normalizedSearch, wildcardSearch, groupName)
+        );
       }),
-    [filesMatchingStatusFilters, normalizedFilter, normalizedSearch, wildcardSearch]
+    [
+      activeGroupFilter,
+      filesMatchingStatusFilters,
+      groupNameById,
+      groups,
+      groupsEnabled,
+      normalizedFilter,
+      normalizedSearch,
+      wildcardSearch,
+    ]
   );
 
-  const sorted = useMemo(() => sortAuthFiles(filtered, sortMode), [filtered, sortMode]);
+  /* ---------- 额度排序：键只在数据变化时重算，不随时钟走动 ---------- */
+
+  const antigravityQuota = useQuotaStore((state) => state.antigravityQuota);
+  const claudeQuota = useQuotaStore((state) => state.claudeQuota);
+  const codexQuota = useQuotaStore((state) => state.codexQuota);
+  const devinQuota = useQuotaStore((state) => state.devinQuota);
+  const kimiQuota = useQuotaStore((state) => state.kimiQuota);
+  const metaQuota = useQuotaStore((state) => state.metaQuota);
+  const pluginQuota = useQuotaStore((state) => state.pluginQuota);
+  const xaiQuota = useQuotaStore((state) => state.xaiQuota);
+  const quotaSortActive = getQuotaRemainingSortSpec(effectiveSortMode) !== null;
+  const quotaByType = useMemo(
+    () =>
+      ({
+        antigravity: antigravityQuota,
+        claude: claudeQuota,
+        codex: codexQuota,
+        devin: devinQuota,
+        kimi: kimiQuota,
+        meta: metaQuota,
+        plugin: pluginQuota,
+        xai: xaiQuota,
+      }) as unknown as Record<QuotaCardProviderType, Record<string, QuotaCardState>>,
+    [
+      antigravityQuota,
+      claudeQuota,
+      codexQuota,
+      devinQuota,
+      kimiQuota,
+      metaQuota,
+      pluginQuota,
+      xaiQuota,
+    ]
+  );
+  // Re-read only when quota data changes, so a ticking clock never reorders cards.
+  const quotaSortNowMs = useQuotaSortNow(quotaSortActive, quotaByType);
+  const quotaKeyResolver = useMemo(
+    () => createAuthFileQuotaKeyResolver((type, key) => quotaByType[type]?.[key], quotaSortNowMs),
+    [quotaByType, quotaSortNowMs]
+  );
+
+  const sorted = useMemo(
+    () => sortAuthFiles(filtered, effectiveSortMode, quotaKeyResolver),
+    [effectiveSortMode, filtered, quotaKeyResolver]
+  );
+
+  const missingQuotaEntries = useMemo(
+    () => collectMissingQuotaEntries(filtered, effectiveSortMode, quotaKeyResolver),
+    [effectiveSortMode, filtered, quotaKeyResolver]
+  );
+  const { batchLoading: quotaBatchLoading, loadQuota } = useQuotaBatchLoader();
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
   const currentPage = Math.min(page, totalPages);
@@ -479,6 +625,83 @@ export function AuthFilesPage() {
     selectedNames.length === 0 ||
     batchStatusUpdating ||
     selectedHasStatusUpdating;
+
+  /* ---------- 分组 / 自定义顺序 ---------- */
+
+  const toOrdered = (file: AuthFileItem): OrderedItem => ({
+    name: file.name,
+    order: file.ui?.order,
+  });
+
+  // Visible, writable files in display order; up/down move relative to these neighbours.
+  const movableSorted = useMemo(
+    () => sorted.filter((file) => !isRuntimeOnlyAuthFile(file)),
+    [sorted]
+  );
+  const movableIndexByName = useMemo(
+    () => new Map(movableSorted.map((file, index) => [file.name, index])),
+    [movableSorted]
+  );
+
+  const handleMoveFile = useCallback(
+    (file: AuthFileItem, action: AuthFileMoveAction) => {
+      let writes;
+      if (action === 'up' || action === 'down') {
+        const index = movableIndexByName.get(file.name);
+        if (index === undefined) return;
+        writes = planMove(movableSorted.map(toOrdered), index, index + (action === 'up' ? -1 : 1));
+      } else {
+        // Top/bottom are global: rank against every writable file, not just the visible ones.
+        const all = sortAuthFiles(
+          files.filter((item) => !isRuntimeOnlyAuthFile(item)),
+          'custom'
+        ).map(toOrdered);
+        writes =
+          action === 'top' ? planMoveToTop(all, [file.name]) : planMoveToBottom(all, [file.name]);
+      }
+      void applyOrderWrites(writes);
+    },
+    [applyOrderWrites, files, movableIndexByName, movableSorted]
+  );
+
+  const handleBatchMoveToTop = useCallback(async () => {
+    if (selectedNames.length === 0) return;
+    const all = sortAuthFiles(
+      files.filter((item) => !isRuntimeOnlyAuthFile(item)),
+      'custom'
+    ).map(toOrdered);
+    const writes = planMoveToTop(all, selectedNames);
+    if (sortMode !== 'custom') {
+      setSortMode('custom');
+      setPage(1);
+      showNotification(t('auth_files.order_switched_custom'), 'info');
+    }
+    const ok = await applyOrderWrites(writes);
+    if (ok) deselectAll();
+  }, [applyOrderWrites, deselectAll, files, selectedNames, showNotification, sortMode, t]);
+
+  const handleAssignGroup = useCallback(
+    (file: AuthFileItem, groupId: string) => {
+      if ((file.ui?.group ?? '') === groupId) return;
+      void batchAssignGroup([file.name], groupId);
+    },
+    [batchAssignGroup]
+  );
+
+  const handleSaveGroups = useCallback(
+    async (next: Array<{ id: string; name: string; color?: string }>) => {
+      const before = groups;
+      const saved = await saveGroups(next);
+      clearGroupsLocally(removedGroupIds(before, saved));
+      showNotification(t('account_groups.save_success'), 'success');
+    },
+    [clearGroupsLocally, groups, saveGroups, showNotification, t]
+  );
+
+  const handleGroupFilterChange = useCallback((value: string) => {
+    setGroupFilter(value);
+    setPage(1);
+  }, []);
 
   /* ---------- 头部遥测计数 ---------- */
 
@@ -550,6 +773,7 @@ export function AuthFilesPage() {
 
   const clearFilters = useCallback(() => {
     setFilter('all');
+    setGroupFilter(GROUP_FILTER_ALL);
     setStatusFilterMode('all');
     setSearch('');
     setPage(1);
@@ -624,6 +848,17 @@ export function AuthFilesPage() {
           }}
         />
 
+        {groupsEnabled && (
+          <GroupChipRow
+            groups={groups}
+            counts={groupCounts}
+            active={activeGroupFilter}
+            disabled={disableControls}
+            onChange={handleGroupFilterChange}
+            onManage={() => setGroupManagerOpen(true)}
+          />
+        )}
+
         <AuthFilesToolbar
           search={search}
           onSearchChange={(value) => {
@@ -633,7 +868,7 @@ export function AuthFilesPage() {
           statusFilterMode={statusFilterMode}
           statusFilterOptions={statusFilterOptions}
           onStatusFilterChange={handleStatusFilterModeChange}
-          sortMode={sortMode}
+          sortMode={effectiveSortMode}
           sortOptions={sortOptions}
           onSortModeChange={handleSortModeChange}
           pageSizeInput={pageSizeInput}
@@ -642,7 +877,18 @@ export function AuthFilesPage() {
           compactMode={compactMode}
           onCompactModeChange={setCompactMode}
           deleteLabel={deleteAllButtonLabel}
-          deleteDisabled={disableControls || loading || deletingAll || files.length === 0}
+          deleteDisabled={
+            disableControls ||
+            loading ||
+            deletingAll ||
+            files.length === 0 ||
+            activeGroupFilter !== GROUP_FILTER_ALL
+          }
+          deleteTitle={
+            activeGroupFilter !== GROUP_FILTER_ALL
+              ? t('auth_files.delete_disabled_group_filter')
+              : undefined
+          }
           deleteLoading={deletingAll}
           onDelete={() =>
             handleDeleteAll({
@@ -657,6 +903,21 @@ export function AuthFilesPage() {
             })
           }
         />
+
+        {quotaSortActive && missingQuotaEntries.length > 0 && (
+          <div className={styles.quotaHint} role="status">
+            <span>{t('auth_files.quota_sort_missing', { count: missingQuotaEntries.length })}</span>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void loadQuota(missingQuotaEntries)}
+              loading={quotaBatchLoading}
+              disabled={disableControls}
+            >
+              {t('auth_files.quota_sort_load')}
+            </Button>
+          </div>
+        )}
 
         {error && (
           <div className={styles.errorBanner} role="alert">
@@ -724,6 +985,17 @@ export function AuthFilesPage() {
                 onDelete={handleDelete}
                 onToggleStatus={handleStatusToggle}
                 onToggleSelect={toggleSelect}
+                groups={groupsEnabled ? groups : undefined}
+                onAssignGroup={groupsEnabled ? handleAssignGroup : undefined}
+                orderControls={
+                  effectiveSortMode === 'custom' && !isRuntimeOnlyAuthFile(file)
+                    ? {
+                        isFirst: movableIndexByName.get(file.name) === 0,
+                        isLast: movableIndexByName.get(file.name) === movableSorted.length - 1,
+                        onMove: handleMoveFile,
+                      }
+                    : undefined
+                }
               />
             ))}
           </div>
@@ -825,7 +1097,21 @@ export function AuthFilesPage() {
         onEnable={() => batchSetStatus(selectedNames, true)}
         onDisable={() => batchSetStatus(selectedNames, false)}
         onDelete={() => batchDelete(selectedNames)}
+        groups={groupsEnabled ? groups : undefined}
+        onAssignGroup={
+          groupsEnabled ? (groupId) => void batchAssignGroup(selectedNames, groupId) : undefined
+        }
+        onMoveToTop={customOrderEnabled ? () => void handleBatchMoveToTop() : undefined}
       />
+
+      {groupsEnabled && (
+        <GroupManager
+          open={groupManagerOpen}
+          groups={groups}
+          onClose={() => setGroupManagerOpen(false)}
+          onSave={handleSaveGroups}
+        />
+      )}
     </div>
   );
 }

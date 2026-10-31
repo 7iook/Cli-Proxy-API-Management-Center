@@ -225,7 +225,8 @@ describe('cooldown section rendering', () => {
 
     const available = render(snapshot, { onReset: () => {} });
     expect(available).toContain(i18n.t('auth_files.cooldown_reset_button'));
-    expect(available).toContain(i18n.t('auth_files.cooldown_reset_hint'));
+    // renderToStaticMarkup HTML-escapes apostrophes in attribute values (title).
+    expect(available).toContain(i18n.t('auth_files.cooldown_reset_hint').replaceAll("'", '&#x27;'));
     expect(available).not.toContain('disabled=""');
 
     const pending = render(snapshot, { onReset: () => {}, resetting: true });

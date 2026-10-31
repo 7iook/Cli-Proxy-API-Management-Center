@@ -41,6 +41,72 @@
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary-color) 40%, transparent);
 }
 
+/* 分组：左侧色条 + 小徽章（紧凑模式只保留色条与徽章文字） */
+.cardGrouped::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--group-color);
+  pointer-events: none;
+}
+
+.groupBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  max-width: 100%;
+  margin: 0;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--group-color) 12%, transparent);
+}
+
+.groupDot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--group-color);
+}
+
+.groupName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.organize {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.groupSelect {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.orderActions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 2px;
+}
+
+.card .orderButton {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+}
+
 /* 首次数据到达时的一次性级联入场；过滤/翻页/轮询不重播 */
 .cardEnter {
   animation: card-in 180ms var(--ease-out-strong, ease-out) both;

@@ -10,6 +10,7 @@ export { useLoginTransitionStore } from './useLoginTransitionStore';
 export { useConfigStore } from './useConfigStore';
 export { useModelsStore } from './useModelsStore';
 export { useAccountGroupsStore } from './useAccountGroupsStore';
+export { usePanelPreferencesStore } from './usePanelPreferencesStore';
 export {
   captureQuotaCacheGeneration,
   commitIfQuotaCacheCurrent,

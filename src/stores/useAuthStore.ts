@@ -15,6 +15,7 @@ import { useConfigStore } from './useConfigStore';
 import { useModelsStore } from './useModelsStore';
 import { useQuotaStore } from './useQuotaStore';
 import { useAccountGroupsStore } from './useAccountGroupsStore';
+import { usePanelPreferencesStore } from './usePanelPreferencesStore';
 import { detectApiBaseFromLocation, normalizeApiBase } from '@/utils/connection';
 
 interface AuthStoreState extends AuthState {
@@ -125,6 +126,7 @@ export const useAuthStore = create<AuthStoreState>()(
           useModelsStore.getState().clearCache();
           useQuotaStore.getState().clearQuotaCache();
           useAccountGroupsStore.getState().reset();
+          usePanelPreferencesStore.getState().reset();
 
           // 配置 API 客户端
           apiClient.setConfig({
@@ -175,6 +177,7 @@ export const useAuthStore = create<AuthStoreState>()(
         useModelsStore.getState().clearCache();
         useQuotaStore.getState().clearQuotaCache();
         useAccountGroupsStore.getState().reset();
+        usePanelPreferencesStore.getState().reset();
         set({
           isAuthenticated: false,
           apiBase: '',

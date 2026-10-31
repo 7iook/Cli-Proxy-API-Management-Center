@@ -2444,6 +2444,7 @@
     "expired": "綁定工作階段已過期，請重新開始。"
   },
   "quota_cache": {
-    "cached_at": "快取於 {{time}}"
+    "cached_at": "快取於 {{time}}",
+    "passive_at": "{{ago}} · 來自真實請求"
   }
 }

@@ -2417,6 +2417,7 @@
     "expired": "The binding session expired. Please start over."
   },
   "quota_cache": {
-    "cached_at": "Cached at {{time}}"
+    "cached_at": "Cached at {{time}}",
+    "passive_at": "{{ago}} · from real requests"
   }
 }

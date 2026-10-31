@@ -2415,5 +2415,9 @@
     "error": "Bağlama Başarısız Oldu. Lütfen Yeniden Başla.",
     "unsupported": "Bu Arka Uç SIWC Bağlamayı Desteklemiyor.",
     "expired": "Bağlama Oturumunun Süresi Doldu. Lütfen Yeniden Başla."
+  },
+  "quota_cache": {
+    "cached_at": "Önbellekten: {{time}}",
+    "passive_at": "{{ago}} · gerçek isteklerden"
   }
 }

@@ -35,6 +35,7 @@ const OMITTED_KEYS = new Set([
   'errorStatus',
   'stale',
   'cachedAt',
+  'passiveAt',
   'token',
   'accessToken',
   'access_token',
@@ -101,6 +102,8 @@ export function mergeFreshQuota(
     for (const [key, value] of Object.entries(map)) {
       const state = value as Record<string, unknown> | undefined;
       if (!state || state.status !== 'success' || state.cachedAt !== undefined) continue;
+      // Backend passive snapshots are re-read from the server; never cache them locally.
+      if (state.passiveAt !== undefined) continue;
       if (next === snapshot) next = { ...snapshot };
       next[field] = {
         ...next[field],
@@ -135,7 +138,11 @@ export function hydrateQuotaMaps(snapshot: QuotaCacheSnapshot, current: QuotaMap
     const existing = current[field] ?? {};
     const additions: Record<string, unknown> = {};
     for (const [key, entry] of Object.entries(entries)) {
-      if (existing[key] || !entry || typeof entry.state !== 'object') continue;
+      if (!entry || typeof entry.state !== 'object') continue;
+      const loaded = existing[key] as { passiveAt?: unknown } | undefined;
+      // A browser-cached result only displaces an older passive snapshot.
+      if (loaded && !(typeof loaded.passiveAt === 'number' && entry.cachedAt > loaded.passiveAt))
+        continue;
       additions[key] = { ...entry.state, status: 'success', cachedAt: entry.cachedAt };
     }
     if (Object.keys(additions).length) result[field] = { ...existing, ...additions };

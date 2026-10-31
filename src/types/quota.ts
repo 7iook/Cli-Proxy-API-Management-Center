@@ -220,6 +220,10 @@ export interface ClaudeQuotaState {
   planType?: string | null;
   error?: string;
   errorStatus?: number;
+  /** Set when hydrated from the browser cache (epoch ms of the original fetch). */
+  cachedAt?: number;
+  /** Set when built from the backend's passive snapshot (epoch ms captured). */
+  passiveAt?: number;
 }
 
 // Quota state types

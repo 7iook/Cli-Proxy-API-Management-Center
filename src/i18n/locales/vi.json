@@ -2423,6 +2423,7 @@
     "expired": "Phiên liên kết đã hết hạn. Hãy bắt đầu lại."
   },
   "quota_cache": {
-    "cached_at": "Đã lưu đệm lúc {{time}}"
+    "cached_at": "Đã lưu đệm lúc {{time}}",
+    "passive_at": "{{ago}} · từ yêu cầu thực tế"
   }
 }

@@ -17,6 +17,22 @@ import {
 import { parseTimestampMs } from '@/utils/timestamp';
 import { normalizeAuthFileCooldowns, normalizeCooldownTimestamp } from './authFileCooldowns';
 
+type AuthFilesListObserver = (files: AuthFilesResponse['files']) => void;
+let authFilesListObserver: AuthFilesListObserver | null = null;
+
+/** Observe every credential list the panel loads (used for passive quota display). */
+export const setAuthFilesListObserver = (observer: AuthFilesListObserver | null): void => {
+  authFilesListObserver = observer;
+};
+
+const notifyAuthFilesListObserver = (files: AuthFilesResponse['files']): void => {
+  try {
+    authFilesListObserver?.(files);
+  } catch {
+    // Observers are best effort and must never break list loading.
+  }
+};
+
 type AuthFileStatusResponse = { status: string; disabled: boolean };
 export type AuthFileLookup = { name: string; authIndex?: string };
 type AuthFileEntry = AuthFilesResponse['files'][number];
@@ -543,13 +559,16 @@ export interface AuthFileCooldownResetResponse {
 }
 
 export const authFilesApi = {
-  list: async (lookup?: AuthFileLookup) =>
-    normalizeAuthFilesResponse(
+  list: async (lookup?: AuthFileLookup) => {
+    const response = normalizeAuthFilesResponse(
       await apiClient.get<AuthFilesResponse>(
         '/credentials',
         lookup ? { params: { name: lookup.name, auth_index: lookup.authIndex } } : undefined
       )
-    ),
+    );
+    notifyAuthFilesListObserver(response.files);
+    return response;
+  },
 
   setStatus: (name: string, disabled: boolean, authIndex?: string) =>
     apiClient.patch<AuthFileStatusResponse>('/credentials/status', {

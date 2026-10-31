@@ -1,3 +1,5 @@
+import { setAuthFilesListObserver } from '@/services/api/authFiles';
+import { applyPassiveQuotaSnapshots } from '@/stores/passiveQuotaSync';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { useQuotaStore } from '@/stores/useQuotaStore';
 import {
@@ -49,4 +51,5 @@ export function installQuotaPersistence(storage: Storage = window.localStorage):
   });
 
   hydrate();
+  setAuthFilesListObserver(applyPassiveQuotaSnapshots);
 }

@@ -16,6 +16,7 @@
  */
 
 import type { AuthFileItem } from '@/types';
+import { maskEmailsIn } from '@/utils/maskEmail';
 
 export type AuthFileIdentityKind = 'email' | 'projectId' | 'fileName';
 
@@ -59,4 +60,18 @@ export const deriveAuthFileIdentity = (file: AuthFileItem): AuthFileIdentity => 
     kind === 'fileName' || !base || base.toLowerCase() === primary.toLowerCase() ? null : base;
 
   return { primary, kind, secondary, fullName };
+};
+
+/** Display-only copy of an identity with the credential's own email masked everywhere it appears. */
+export const maskAuthFileIdentity = (
+  identity: AuthFileIdentity,
+  file: AuthFileItem
+): AuthFileIdentity => {
+  const emails = [readIdentityText(file.email)];
+  return {
+    ...identity,
+    primary: maskEmailsIn(identity.primary, emails),
+    secondary: identity.secondary === null ? null : maskEmailsIn(identity.secondary, emails),
+    fullName: maskEmailsIn(identity.fullName, emails),
+  };
 };

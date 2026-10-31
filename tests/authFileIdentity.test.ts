@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { deriveAuthFileIdentity, stripJsonExtension } from '../src/features/authFiles/identity';
+import {
+  deriveAuthFileIdentity,
+  maskAuthFileIdentity,
+  stripJsonExtension,
+} from '../src/features/authFiles/identity';
 import type { AuthFileItem } from '../src/types';
 
 const authFile = (overrides: Partial<AuthFileItem> = {}): AuthFileItem => ({
@@ -182,5 +186,26 @@ describe('deriveAuthFileIdentity', () => {
       secondary: null,
       fullName: '',
     });
+  });
+});
+
+describe('maskAuthFileIdentity', () => {
+  test('masks the email in the primary line, the file name and the tooltip name', () => {
+    const file = {
+      name: 'codex-ab12cd34-person@example.com-plus.json',
+      type: 'codex',
+      email: 'person@example.com',
+    } as AuthFileItem;
+    const masked = maskAuthFileIdentity(deriveAuthFileIdentity(file), file);
+    expect(masked.primary).toBe('per***@example.com');
+    expect(masked.secondary).toBe('codex-ab12cd34-per***@example.com-plus');
+    expect(masked.fullName).toBe('codex-ab12cd34-per***@example.com-plus.json');
+    expect(masked.kind).toBe('email');
+  });
+
+  test('leaves identities without an email untouched', () => {
+    const file = { name: 'plain.json', type: 'kimi' } as AuthFileItem;
+    const identity = deriveAuthFileIdentity(file);
+    expect(maskAuthFileIdentity(identity, file)).toEqual(identity);
   });
 });

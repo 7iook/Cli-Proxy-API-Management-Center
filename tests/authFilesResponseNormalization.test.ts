@@ -115,3 +115,41 @@ describe('auth-files response normalization', () => {
     expect(result.files[0]?.accountType).toBeUndefined();
   });
 });
+
+describe('auth-files ui metadata normalization', () => {
+  test('keeps a string group and a finite order', () => {
+    const result = normalizeAuthFilesResponse(
+      responseWithRawFiles([
+        { name: 'a.json', ui: { group: 'g-1', order: -1024.5 } },
+        { name: 'b.json', ui: { group: 'g-2' } },
+        { name: 'c.json', ui: { order: 0 } },
+      ])
+    );
+
+    expect(result.files.map((file) => file.ui)).toEqual([
+      { group: 'g-1', order: -1024.5 },
+      { group: 'g-2' },
+      { order: 0 },
+    ]);
+  });
+
+  test('drops invalid shapes and unknown sub-keys', () => {
+    const result = normalizeAuthFilesResponse(
+      responseWithRawFiles([
+        { name: 'a.json', ui: { group: 5, order: '10' } },
+        { name: 'b.json', ui: { order: Number.POSITIVE_INFINITY, group: '' } },
+        { name: 'c.json', ui: 'nope' },
+        { name: 'd.json' },
+        { name: 'e.json', ui: { group: 'g', color: '#fff', extra: true } },
+      ])
+    );
+
+    expect(result.files.map((file) => file.ui)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { group: 'g' },
+    ]);
+  });
+});

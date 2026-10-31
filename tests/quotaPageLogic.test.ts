@@ -10,6 +10,7 @@ import {
   paginate,
   resolveQuotaProviderType,
   sortQuotaEntries,
+  sortQuotaEntriesByRemaining,
   type QuotaFileEntry,
 } from '@/features/quota/logic';
 import type { AuthFileItem } from '@/types';
@@ -258,5 +259,43 @@ describe('sortQuotaEntries', () => {
     const last = entries[entries.length - 1].file.name;
     const sorted = sortQuotaEntries(entries, 'soonest', resolver({ [last]: 1 }));
     expect(paginate(sorted, 1, 2).pageItems[0].file.name).toBe(last);
+  });
+});
+
+describe('sortQuotaEntriesByRemaining', () => {
+  const entries = classifyQuotaFiles(FILES.slice(0, 4));
+  const remaining: Record<string, number | null> = {
+    'codex-a.json': 40,
+    'claude-a.json': 90,
+    'kimi-a.json': null,
+    'codex-b.json': 10,
+  };
+  const resolve = (entry: QuotaFileEntry) => {
+    const value = remaining[entry.file.name];
+    return value === null
+      ? ({ status: 'missing' } as const)
+      : ({ status: 'value', remaining: value, resetAtMs: null, reset: false } as const);
+  };
+  const names = (list: QuotaFileEntry[]) => list.map((entry) => entry.file.name);
+
+  test('orders by remaining and keeps missing entries last in either direction', () => {
+    expect(names(sortQuotaEntriesByRemaining(entries, 'fiveHourAsc', resolve))).toEqual([
+      'codex-b.json',
+      'codex-a.json',
+      'claude-a.json',
+      'kimi-a.json',
+    ]);
+    expect(names(sortQuotaEntriesByRemaining(entries, 'weeklyDesc', resolve))).toEqual([
+      'claude-a.json',
+      'codex-a.json',
+      'codex-b.json',
+      'kimi-a.json',
+    ]);
+  });
+
+  test('other modes return an untouched copy', () => {
+    const result = sortQuotaEntriesByRemaining(entries, 'default', resolve);
+    expect(result).toEqual(entries);
+    expect(result).not.toBe(entries);
   });
 });

@@ -5,7 +5,7 @@
 import { apiClient } from './client';
 import { getConfigValue, guardConfigConnection } from './configValue';
 import { isRecord } from '@/utils/helpers';
-import type { AuthFilesResponse } from '@/types/authFile';
+import type { AuthFileUiMeta, AuthFilesResponse } from '@/types/authFile';
 import type { OAuthModelAliasEntry } from '@/types';
 import { normalizeOAuthProviderKey } from '@/utils/providerKeys';
 import { getQuotaCacheKey } from '@/utils/quota/identity';
@@ -49,6 +49,8 @@ export type AuthFileFieldsPatch = {
   excluded_models?: string[];
   'excluded-models'?: string[];
   expired?: string;
+  /** Manual order rank; null removes it. */
+  'ui.order'?: number | null;
 };
 type AuthFileBatchFailure = { name: string; error: string };
 type AuthFileBatchUploadResponse = {
@@ -260,6 +262,19 @@ const readBooleanField = (value: unknown): boolean | undefined => {
   return undefined;
 };
 
+const readUiMeta = (value: unknown): AuthFileUiMeta | undefined => {
+  if (!isRecord(value)) return undefined;
+  const group =
+    typeof value.group === 'string' && value.group.trim() ? value.group.trim() : undefined;
+  const order =
+    typeof value.order === 'number' && Number.isFinite(value.order) ? value.order : undefined;
+  if (group === undefined && order === undefined) return undefined;
+  return {
+    ...(group !== undefined ? { group } : {}),
+    ...(order !== undefined ? { order } : {}),
+  };
+};
+
 /**
  * Normalize backend kebab/snake_case fields into AuthFileItem camelCase fields.
  * Preserve raw fields for quota resolvers that read plan_type, id_token,
@@ -280,6 +295,7 @@ const normalizeAuthFileEntry = (
   const modified = readDateField(entry);
   const priority = readIntegerField(entry['priority']);
   const weight = readIntegerField(entry['weight']);
+  const ui = readUiMeta(entry.ui);
   const supportsQuota = readBooleanField(entry['supports_quota'] ?? entry.supportsQuota);
   const quotaProvider =
     readTextField(entry, 'quota_provider') || readTextField(entry, 'quotaProvider');
@@ -306,6 +322,7 @@ const normalizeAuthFileEntry = (
     priority,
     weight,
     ...(note ? { note } : {}),
+    ui,
     ...(email ? { email } : {}),
     ...(projectId ? { projectId } : {}),
   };

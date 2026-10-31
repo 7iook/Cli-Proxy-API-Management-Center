@@ -9,6 +9,8 @@ import {
 export type QuotaUiState = {
   tab?: QuotaTabId;
   sortMode?: QuotaSortMode;
+  /** 'all' | 'ungrouped' | group id */
+  groupFilter?: string;
 };
 
 const QUOTA_UI_STATE_KEY = 'quotaPage.uiState';
@@ -32,6 +34,10 @@ export const readQuotaUiState = (): QuotaUiState | null => {
     return {
       tab: isQuotaTabId(parsed.tab) ? parsed.tab : undefined,
       sortMode: isQuotaSortMode(parsed.sortMode) ? parsed.sortMode : undefined,
+      groupFilter:
+        typeof parsed.groupFilter === 'string' && parsed.groupFilter
+          ? parsed.groupFilter
+          : undefined,
     };
   } catch {
     return null;

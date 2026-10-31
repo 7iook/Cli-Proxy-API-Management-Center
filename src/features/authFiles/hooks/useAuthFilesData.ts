@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
-import { apiClient, authFilesApi } from '@/services/api';
+import { accountGroupsApi, apiClient, authFilesApi } from '@/services/api';
+import { withUiMeta } from '@/features/accountGroups/logic';
+import type { OrderWrite } from '@/features/authFiles/customOrder';
 import type { AuthFileRefreshResult } from '@/services/api/authFiles';
 import { getAuthFileRefreshKey } from '@/features/authFiles/manualRefresh';
 import { notifyAuthFilesChanged } from '@/features/authFiles/authFilesEvents';
@@ -73,6 +75,12 @@ export type UseAuthFilesDataResult = {
   batchDownload: (names: string[]) => Promise<void>;
   batchSetStatus: (names: string[], enabled: boolean) => Promise<void>;
   batchDelete: (names: string[]) => void;
+  /** groupId '' removes the accounts from their group. */
+  batchAssignGroup: (names: string[], groupId: string) => Promise<void>;
+  /** Persists `ui.order` for each write; failed writes are rolled back. */
+  applyOrderWrites: (writes: OrderWrite[]) => Promise<boolean>;
+  /** Drops `ui.group` locally for files pointing at deleted groups. */
+  clearGroupsLocally: (groupIds: ReadonlySet<string>) => void;
 };
 
 export function useAuthFilesData(options?: UseAuthFilesDataOptions): UseAuthFilesDataResult {
@@ -942,6 +950,132 @@ export function useAuthFilesData(options?: UseAuthFilesDataOptions): UseAuthFile
     [applyDeletedFiles, showConfirmation, showNotification, t]
   );
 
+  const batchAssignGroup = useCallback(
+    async (names: string[], groupId: string) => {
+      const revision = apiClient.getConnectionRevision();
+      const targetNames = new Set(
+        files
+          .filter((file) => names.includes(file.name) && !isRuntimeOnlyAuthFile(file))
+          .map((file) => file.name)
+      );
+      if (targetNames.size === 0) return;
+      const nextGroup = groupId || undefined;
+      const originalGroups = new Map<string, string | undefined>();
+      files.forEach((file) => {
+        if (targetNames.has(file.name)) originalGroups.set(file.name, file.ui?.group);
+      });
+      const isCurrent = () => revision === apiClient.getConnectionRevision();
+
+      invalidateInFlightLoads();
+      setFiles((prev) =>
+        prev.map((file) =>
+          targetNames.has(file.name) ? withUiMeta(file, { group: nextGroup }) : file
+        )
+      );
+
+      const rollback = (failed: ReadonlySet<string>) =>
+        setFiles((prev) =>
+          !isCurrent()
+            ? prev
+            : prev.map((file) =>
+                failed.has(file.name)
+                  ? withUiMeta(file, { group: originalGroups.get(file.name) })
+                  : file
+              )
+        );
+
+      try {
+        const result = await accountGroupsApi.assign(groupId, Array.from(targetNames));
+        if (!isCurrent()) return;
+        invalidateInFlightLoads();
+        const failedNames = new Set(result.failed.map((item) => item.name));
+        if (failedNames.size > 0) rollback(failedNames);
+        const failCount = failedNames.size;
+        const successCount = Math.max(0, targetNames.size - failCount);
+        if (failCount === 0) {
+          showNotification(
+            t('auth_files.group_assign_success', { count: successCount }),
+            'success'
+          );
+        } else {
+          showNotification(
+            t('auth_files.group_assign_partial', { success: successCount, failed: failCount }),
+            'warning'
+          );
+        }
+        deselectAll();
+      } catch (err: unknown) {
+        if (!isCurrent()) return;
+        invalidateInFlightLoads();
+        rollback(targetNames);
+        const message = err instanceof Error ? err.message : '';
+        showNotification(`${t('auth_files.group_assign_failed')}: ${message}`, 'error');
+      }
+    },
+    [deselectAll, files, invalidateInFlightLoads, showNotification, t]
+  );
+
+  const applyOrderWrites = useCallback(
+    async (writes: OrderWrite[]): Promise<boolean> => {
+      if (writes.length === 0) return true;
+      const revision = apiClient.getConnectionRevision();
+      const isCurrent = () => revision === apiClient.getConnectionRevision();
+      const nextOrder = new Map(writes.map((write) => [write.name, write.order]));
+      const originalOrder = new Map<string, number | undefined>();
+      files.forEach((file) => {
+        if (nextOrder.has(file.name)) originalOrder.set(file.name, file.ui?.order);
+      });
+
+      invalidateInFlightLoads();
+      setFiles((prev) =>
+        prev.map((file) =>
+          nextOrder.has(file.name) ? withUiMeta(file, { order: nextOrder.get(file.name) }) : file
+        )
+      );
+
+      const results = await Promise.allSettled(
+        writes.map((write) => authFilesApi.patchFields(write.name, { 'ui.order': write.order }))
+      );
+      if (!isCurrent()) return false;
+      invalidateInFlightLoads();
+
+      const failedNames = new Set(
+        writes.filter((_, index) => results[index].status === 'rejected').map((write) => write.name)
+      );
+      if (failedNames.size === 0) return true;
+
+      setFiles((prev) =>
+        !isCurrent()
+          ? prev
+          : prev.map((file) =>
+              failedNames.has(file.name)
+                ? withUiMeta(file, { order: originalOrder.get(file.name) })
+                : file
+            )
+      );
+      showNotification(
+        t('auth_files.order_save_partial', {
+          success: writes.length - failedNames.size,
+          failed: failedNames.size,
+        }),
+        'warning'
+      );
+      return false;
+    },
+    [files, invalidateInFlightLoads, showNotification, t]
+  );
+
+  const clearGroupsLocally = useCallback((groupIds: ReadonlySet<string>) => {
+    if (groupIds.size === 0) return;
+    setFiles((prev) =>
+      prev.map((file) =>
+        file.ui?.group && groupIds.has(file.ui.group)
+          ? withUiMeta(file, { group: undefined })
+          : file
+      )
+    );
+  }, []);
+
   return {
     files,
     selectedFiles,
@@ -977,5 +1111,8 @@ export function useAuthFilesData(options?: UseAuthFilesDataOptions): UseAuthFile
     batchDownload,
     batchSetStatus,
     batchDelete,
+    batchAssignGroup,
+    applyOrderWrites,
+    clearGroupsLocally,
   };
 }

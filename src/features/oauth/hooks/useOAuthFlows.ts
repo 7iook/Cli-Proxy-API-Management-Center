@@ -43,7 +43,7 @@ const SUCCESS_RESET_DELAY_MS = 5000;
 const POLL_INTERVAL_MS = 3000;
 
 const getAuthKey = (provider: string, suffix: string) =>
-  `auth_login.${provider.replace('-', '_')}_${suffix}`;
+  `auth_login.${provider.replace(/-/g, '_')}_${suffix}`;
 
 function getErrorStatus(error: unknown): number | undefined {
   if (!isRecord(error)) return undefined;

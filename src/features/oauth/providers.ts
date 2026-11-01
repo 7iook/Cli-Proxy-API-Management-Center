@@ -105,6 +105,14 @@ export const OAUTH_PROVIDERS: BuiltInOAuthProviderCard[] = [
   },
   {
     kind: 'builtin',
+    id: 'claude-setup-token',
+    label: 'Claude Setup Token',
+    titleKey: 'auth_login.claude_setup_token_oauth_title',
+    icon: iconClaude,
+    flow: 'browser',
+  },
+  {
+    kind: 'builtin',
     id: 'antigravity',
     label: 'Antigravity',
     titleKey: 'auth_login.antigravity_oauth_title',
@@ -135,6 +143,7 @@ const BUILTIN_PROVIDER_IDS = new Set<string>(OAUTH_PROVIDERS.map((provider) => p
 export const CALLBACK_SUPPORTED = new Set<string>([
   'codex',
   'anthropic',
+  'claude-setup-token',
   'antigravity',
   'xai',
   'devin',

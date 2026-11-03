@@ -69,11 +69,52 @@ const buildXaiCallbackUrl = (input: string, state?: string): string | null => {
   return callbackUrl.toString();
 };
 
+export const CLAUDE_CALLBACK_URL = 'http://localhost:54545/callback';
+const CLAUDE_PROVIDERS = new Set(['anthropic', 'claude', 'claude-setup-token']);
+
+/**
+ * Claude 跨设备授权：用户可能粘贴完整回调 URL、Claude 页面展示的 `code#state`，
+ * 或只有 code。非 http(s) 输入拼回固定回环地址，state 优先取 `#` 后片段，否则用本次登录的 state。
+ */
+const buildClaudeCallbackUrl = (input: string, state?: string): string | null => {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  if (isAbsoluteHttpUrl(trimmed)) return trimmed;
+
+  let code: string | undefined;
+  let callbackState: string | undefined;
+  let error: string | undefined;
+  const params = readQueryLikeCallbackInput(trimmed);
+  if (params) {
+    code = params.get('code')?.trim() || undefined;
+    callbackState = params.get('state')?.trim() || undefined;
+    error = params.get('error')?.trim() || undefined;
+  } else {
+    const hashIndex = trimmed.indexOf('#');
+    code = (hashIndex >= 0 ? trimmed.slice(0, hashIndex) : trimmed).trim() || undefined;
+    callbackState = hashIndex >= 0 ? trimmed.slice(hashIndex + 1).trim() || undefined : undefined;
+  }
+  if (code && code.includes('#')) {
+    const [rawCode, fragmentState] = code.split('#', 2);
+    code = rawCode.trim() || undefined;
+    callbackState = callbackState || fragmentState?.trim() || undefined;
+  }
+  callbackState = callbackState || state?.trim() || undefined;
+  if (!callbackState || (!code && !error)) return null;
+
+  const callbackUrl = new URL(CLAUDE_CALLBACK_URL);
+  if (code) callbackUrl.searchParams.set('code', code);
+  callbackUrl.searchParams.set('state', callbackState);
+  if (error) callbackUrl.searchParams.set('error', error);
+  return callbackUrl.toString();
+};
+
 export const resolveCallbackUrl = (
   provider: string,
   input: string,
   state?: string
 ): string | null => {
-  if (provider !== 'xai') return input.trim();
-  return buildXaiCallbackUrl(input, state);
+  if (provider === 'xai') return buildXaiCallbackUrl(input, state);
+  if (CLAUDE_PROVIDERS.has(provider)) return buildClaudeCallbackUrl(input, state);
+  return input.trim();
 };

@@ -53,6 +53,13 @@ const normalizeProviderForManagementPath = (provider: string): string => {
   return key === 'anthropic' ? 'claude' : key;
 };
 
+// Callback provider must match the backend session provider. The setup-token
+// flow registers its session as anthropic, so submit it as claude.
+const normalizeProviderForCallback = (provider: string): string => {
+  const key = normalizeProviderForManagementPath(provider);
+  return key === 'claude-setup-token' ? 'claude' : key;
+};
+
 export interface SiwcBindResponse {
   status: 'ok';
   url: string;
@@ -90,7 +97,7 @@ export const oauthApi = {
     }),
 
   submitCallback: (provider: string, redirectUrl: string, signal?: AbortSignal) => {
-    const providerKey = normalizeProviderForManagementPath(provider);
+    const providerKey = normalizeProviderForCallback(provider);
     return apiClient.post<OAuthCallbackResponse>(
       '/oauth/callback',
       { provider: providerKey, redirect_url: redirectUrl },

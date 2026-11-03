@@ -1,0 +1,90 @@
+@use '../../../styles/mixins' as *;
+
+/* Claude subscription expiry pill (palette borrowed from cockpit-tools' codex badge). */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  max-width: 100%;
+  margin: 0;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  @include text-ellipsis;
+}
+
+button.badge {
+  cursor: pointer;
+  transition: filter var(--dur-hover) var(--ease-out-strong);
+
+  &:hover:not(:disabled) {
+    filter: brightness(0.96);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+  }
+
+  &:disabled {
+    cursor: default;
+  }
+}
+
+.dot {
+  width: 5px;
+  height: 5px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.active {
+  background: rgba(16, 185, 129, 0.12);
+  color: #047857;
+}
+
+.warning {
+  background: rgba(245, 158, 11, 0.14);
+  color: #b45309;
+}
+
+.expired {
+  background: rgba(239, 68, 68, 0.12);
+  color: #b91c1c;
+}
+
+.unset {
+  background: rgba(100, 116, 139, 0.12);
+  color: #64748b;
+}
+
+[data-theme='dark'] {
+  .active {
+    background: rgba(16, 185, 129, 0.18);
+    color: #6ee7b7;
+  }
+
+  .warning {
+    background: rgba(245, 158, 11, 0.2);
+    color: #fcd34d;
+  }
+
+  .expired {
+    background: rgba(239, 68, 68, 0.2);
+    color: #fca5a5;
+  }
+
+  .unset {
+    background: rgba(148, 163, 184, 0.16);
+    color: #94a3b8;
+  }
+}

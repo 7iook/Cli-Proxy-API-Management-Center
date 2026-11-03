@@ -21,6 +21,7 @@ export const AUTH_FILES_SORT_FIELDS = [
   'fiveHour',
   'weekly',
   'weeklyReset',
+  'expiry',
   'custom',
 ] as const;
 export const QUOTA_SORT_FIELDS = [
@@ -30,7 +31,13 @@ export const QUOTA_SORT_FIELDS = [
   'weekly',
   'weeklyReset',
 ] as const;
-export const AUTH_FILES_STATUS_FILTER_MODES = ['all', 'enabled', 'disabled', 'problem'] as const;
+export const AUTH_FILES_STATUS_FILTER_MODES = [
+  'all',
+  'enabled',
+  'disabled',
+  'problem',
+  'expiring',
+] as const;
 
 export type AuthFilesSortField = (typeof AUTH_FILES_SORT_FIELDS)[number];
 export type QuotaSortField = (typeof QUOTA_SORT_FIELDS)[number];
@@ -39,7 +46,12 @@ export type QuotaSort = SortSpec<QuotaSortField>;
 export type AuthFilesStatusFilterMode = (typeof AUTH_FILES_STATUS_FILTER_MODES)[number];
 
 /** Fields where direction means nothing; the control hides its direction button for them. */
-const DIRECTIONLESS_FIELDS: ReadonlySet<string> = new Set(['default', 'custom', 'soonest']);
+const DIRECTIONLESS_FIELDS: ReadonlySet<string> = new Set([
+  'default',
+  'custom',
+  'soonest',
+  'expiry',
+]);
 export const isDirectionalSortField = (field: string): boolean => !DIRECTIONLESS_FIELDS.has(field);
 
 /** Direction a field starts in when picked: priority is high-first, everything else ascending. */

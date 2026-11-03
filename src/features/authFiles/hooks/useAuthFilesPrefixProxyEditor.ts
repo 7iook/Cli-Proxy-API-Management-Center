@@ -32,6 +32,15 @@ import {
   validateCredentialWeightText,
   type CredentialWeightError,
 } from '@/utils/credentialWeight';
+import {
+  isClaudeAuthFile,
+  readStoredSubscription,
+  sameSubscription,
+  subscriptionDraftToPatch,
+  validateSubscriptionDraft,
+  type SubscriptionDraft,
+  type SubscriptionDraftError,
+} from '@/features/authFiles/subscription';
 
 type AuthFileHeaders = Record<string, string>;
 type AuthFileHeadersErrorKey =
@@ -41,7 +50,8 @@ type AuthFileHeadersErrorKey =
 type AuthFileContentErrorKey =
   'auth_files.prefix_proxy_invalid_json' | 'auth_files.prefix_proxy_html_challenge';
 type AuthFileWeightErrorKey = 'auth_files.weight_invalid_integer' | 'auth_files.weight_invalid_max';
-type AuthFileEditorErrorKey = AuthFileHeadersErrorKey | AuthFileWeightErrorKey;
+type AuthFileEditorErrorKey =
+  AuthFileHeadersErrorKey | AuthFileWeightErrorKey | SubscriptionDraftError;
 
 export type PrefixProxyEditorField =
   | CredentialPolicyField
@@ -54,6 +64,11 @@ export type PrefixProxyEditorField =
   | 'usingApi'
   | 'useSiwc'
   | 'note'
+  | 'subscriptionStart'
+  | 'subscriptionCycle'
+  | 'subscriptionAutoRenew'
+  | 'subscriptionEnd'
+  | 'subscriptionClear'
   | 'excludedModelsText'
   | 'headersText';
 
@@ -86,12 +101,38 @@ export type PrefixProxyEditorState = {
   usingApiTouched: boolean;
   note: string;
   noteTouched: boolean;
+  /** Claude only: manually maintained subscription draft. */
+  subscription: SubscriptionDraft;
+  subscriptionTouched: boolean;
+  subscriptionError: string | null;
   excludedModelsText: string;
   excludedModelsTouched: boolean;
   headersText: string;
   headersTouched: boolean;
   headersError: string | null;
 };
+
+export const EMPTY_SUBSCRIPTION_DRAFT: SubscriptionDraft = {
+  start: '',
+  cycle: 'monthly',
+  autoRenew: false,
+  end: '',
+};
+
+/** Raw file JSON `subscription` → editor draft. */
+export const readSubscriptionDraft = (json: Record<string, unknown>): SubscriptionDraft => {
+  const stored = readStoredSubscription(json.subscription);
+  if (!stored) return { ...EMPTY_SUBSCRIPTION_DRAFT };
+  return {
+    start: stored.start,
+    cycle: stored.cycle,
+    autoRenew: stored.auto_renew,
+    end: stored.end ?? '',
+  };
+};
+
+const supportsAuthFileSubscription = (providerKey: string): boolean =>
+  isClaudeAuthFile({ type: providerKey });
 
 export type UseAuthFilesPrefixProxyEditorOptions = {
   disableControls: boolean;
@@ -182,6 +223,21 @@ const getExcludedModelsField = (
   value.excluded_models === undefined && value['excluded-models'] !== undefined
     ? 'excluded-models'
     : 'excluded_models';
+
+const applySubscriptionField = (
+  draft: SubscriptionDraft,
+  field: PrefixProxyEditorField,
+  value: PrefixProxyEditorFieldValue
+): SubscriptionDraft => {
+  if (field === 'subscriptionClear') return { ...EMPTY_SUBSCRIPTION_DRAFT };
+  if (field === 'subscriptionStart') return { ...draft, start: String(value) };
+  if (field === 'subscriptionEnd') return { ...draft, end: String(value) };
+  if (field === 'subscriptionAutoRenew') return { ...draft, autoRenew: Boolean(value) };
+  if (field === 'subscriptionCycle') {
+    return { ...draft, cycle: value === 'annual' ? 'annual' : 'monthly' };
+  }
+  return draft;
+};
 
 const INVALID_CONTENT_PREVIEW_LIMIT = 1000;
 
@@ -355,6 +411,21 @@ export const buildAuthFileFieldsPatch = (
     }
   }
 
+  if (supportsAuthFileSubscription(editor.providerKey) && editor.subscriptionTouched) {
+    const subscriptionError = validateSubscriptionDraft(editor.subscription);
+    if (subscriptionError) {
+      throw new Error(resolveError(subscriptionError));
+    }
+    const originalSubscription = readStoredSubscription(original.subscription);
+    const nextSubscription = subscriptionDraftToPatch(editor.subscription);
+    const hasRawSubscription = original.subscription !== undefined;
+    if (!nextSubscription) {
+      if (hasRawSubscription) patch.subscription = null;
+    } else if (!sameSubscription(originalSubscription, nextSubscription)) {
+      patch.subscription = nextSubscription;
+    }
+  }
+
   if (editor.excludedModelsTouched) {
     const originalExcludedModels = readExcludedModels(original);
     const nextExcludedModels = parseExcludedModelsText(editor.excludedModelsText);
@@ -456,6 +527,14 @@ const buildPrefixProxyUpdatedText = (
     }
   }
 
+  if (patch.subscription !== undefined) {
+    if (patch.subscription === null) {
+      delete next.subscription;
+    } else {
+      next.subscription = patch.subscription;
+    }
+  }
+
   if (patch.excluded_models !== undefined) {
     next.excluded_models = patch.excluded_models;
   }
@@ -495,6 +574,7 @@ export function useAuthFilesPrefixProxyEditor(
   const hasBlockingValidationError = Boolean(
     (prefixProxyEditor?.headersTouched && prefixProxyEditor.headersError) ||
     prefixProxyEditor?.weightError ||
+    (prefixProxyEditor?.subscriptionTouched && prefixProxyEditor.subscriptionError) ||
     credentialPolicyError(prefixProxyEditor?.policy)
   );
   const prefixProxyUpdatedText =
@@ -556,6 +636,9 @@ export function useAuthFilesPrefixProxyEditor(
       usingApiTouched: false,
       note: '',
       noteTouched: false,
+      subscription: { ...EMPTY_SUBSCRIPTION_DRAFT },
+      subscriptionTouched: false,
+      subscriptionError: null,
       excludedModelsText: '',
       excludedModelsTouched: false,
       headersText: '',
@@ -644,6 +727,9 @@ export function useAuthFilesPrefixProxyEditor(
           usingApiTouched: false,
           note,
           noteTouched: false,
+          subscription: readSubscriptionDraft(json),
+          subscriptionTouched: false,
+          subscriptionError: null,
           excludedModelsText,
           excludedModelsTouched: false,
           headersText,
@@ -709,6 +795,22 @@ export function useAuthFilesPrefixProxyEditor(
         return { ...prev, usingApi: Boolean(value), usingApiTouched: true };
       }
       if (field === 'note') return { ...prev, note: String(value), noteTouched: true };
+      if (
+        field === 'subscriptionStart' ||
+        field === 'subscriptionCycle' ||
+        field === 'subscriptionAutoRenew' ||
+        field === 'subscriptionEnd' ||
+        field === 'subscriptionClear'
+      ) {
+        const subscription = applySubscriptionField(prev.subscription, field, value);
+        const error = validateSubscriptionDraft(subscription);
+        return {
+          ...prev,
+          subscription,
+          subscriptionTouched: true,
+          subscriptionError: error ? t(error) : null,
+        };
+      }
       if (field === 'excludedModelsText') {
         return {
           ...prev,

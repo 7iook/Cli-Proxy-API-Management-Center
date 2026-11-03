@@ -35,6 +35,9 @@ const makeEditor = (json: Record<string, unknown>, weight: string): PrefixProxyE
   usingApiTouched: false,
   note: '',
   noteTouched: false,
+  subscription: { start: '', cycle: 'monthly', autoRenew: false, end: '' },
+  subscriptionTouched: false,
+  subscriptionError: null,
   excludedModelsText: '',
   excludedModelsTouched: false,
   headersText: '',
@@ -65,10 +68,16 @@ describe('auth-file SIWC toggle', () => {
   test('enables SIWC and ignores untouched, unchanged, or non-Codex state', () => {
     const editor = { ...makeEditor({}, ''), useSiwc: true, useSiwcTouched: true };
     expect(buildAuthFileFieldsPatch(editor, resolveError)).toEqual({ use_siwc: true });
-    expect(buildAuthFileFieldsPatch({ ...editor, useSiwcTouched: false }, resolveError)).toEqual({});
+    expect(buildAuthFileFieldsPatch({ ...editor, useSiwcTouched: false }, resolveError)).toEqual(
+      {}
+    );
     expect(buildAuthFileFieldsPatch({ ...editor, useSiwc: false }, resolveError)).toEqual({});
-    expect(buildAuthFileFieldsPatch({ ...editor, providerKey: 'claude' }, resolveError)).toEqual({});
-    expect(buildAuthFileFieldsPatch({ ...editor, json: { use_siwc: true } }, resolveError)).toEqual({});
+    expect(buildAuthFileFieldsPatch({ ...editor, providerKey: 'claude' }, resolveError)).toEqual(
+      {}
+    );
+    expect(buildAuthFileFieldsPatch({ ...editor, json: { use_siwc: true } }, resolveError)).toEqual(
+      {}
+    );
   });
 });
 
@@ -130,9 +139,9 @@ describe('auth-file disable cooling patch', () => {
   });
 
   test('does not patch an untouched or unchanged override', () => {
-    expect(buildAuthFileFieldsPatch(makeEditor({ disable_cooling: true }, ''), resolveError)).toEqual(
-      {}
-    );
+    expect(
+      buildAuthFileFieldsPatch(makeEditor({ disable_cooling: true }, ''), resolveError)
+    ).toEqual({});
     expect(
       buildAuthFileFieldsPatch(
         {

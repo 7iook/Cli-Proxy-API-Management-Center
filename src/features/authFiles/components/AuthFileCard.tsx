@@ -43,6 +43,8 @@ import type { AuthFileStatusBarData } from '@/features/authFiles/hooks/useAuthFi
 import { AuthFileQuotaSection } from '@/features/authFiles/components/AuthFileQuotaSection';
 import { QuotaSummary } from '@/features/quota/components/QuotaSummary';
 import { AuthFileCooldownSection } from './AuthFileCooldownSection';
+import { AuthFileSubscriptionBadge } from './AuthFileSubscriptionBadge';
+import { resolveSubscriptionPeriod } from '@/features/authFiles/subscription';
 import { getSiwcBindingStatus, supportsSiwcBinding } from '@/features/oauth/siwcBinding';
 import { SiwcStatusBadge } from '@/features/oauth/components/SiwcStatusBadge';
 import styles from './AuthFileCard.module.scss';
@@ -149,6 +151,9 @@ export function AuthFileCard(props: AuthFileCardProps) {
     ? formatDateTimeValue(file.siwcExpiresAt, i18n.language)
     : '';
 
+  const subscriptionPeriod =
+    providerKey === 'claude' ? resolveSubscriptionPeriod(file.subscription) : null;
+
   const group = groups ? getFileGroup(file, groups) : null;
   const groupColor = group ? (group.color ?? DEFAULT_GROUP_COLOR) : undefined;
   // Runtime-only / config / plugin-virtual files cannot carry display metadata.
@@ -227,6 +232,14 @@ export function AuthFileCard(props: AuthFileCardProps) {
           <span className={styles.groupDot} aria-hidden="true" />
           <span className={styles.groupName}>{group.name}</span>
         </p>
+      )}
+
+      {subscriptionPeriod && (
+        <AuthFileSubscriptionBadge
+          period={subscriptionPeriod}
+          onClick={isRuntimeOnly ? undefined : () => onOpenPrefixProxyEditor(file)}
+          disabled={disableControls}
+        />
       )}
 
       {!compact && noteValue && (

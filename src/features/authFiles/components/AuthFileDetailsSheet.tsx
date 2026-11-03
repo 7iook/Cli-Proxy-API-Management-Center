@@ -5,6 +5,7 @@ import { Sheet } from '@/components/ui/Sheet';
 import { Button } from '@/components/ui/Button';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import { useNotificationStore } from '@/stores';
 import type {
@@ -21,6 +22,12 @@ import { MAX_CREDENTIAL_WEIGHT } from '@/utils/credentialWeight';
 import { AuthFileExcludedModelsField } from './AuthFileExcludedModelsField';
 import { AuthFilePolicyFields } from './AuthFilePolicyFields';
 import { credentialPolicyError, readCredentialPolicy } from '../credentialPolicy';
+import { AuthFileSubscriptionBadge } from './AuthFileSubscriptionBadge';
+import {
+  computeSubscriptionPeriod,
+  isClaudeAuthFile,
+  parseSubscriptionDateFromNote,
+} from '../subscription';
 import styles from './AuthFileDetailsSheet.module.scss';
 
 /** API 边界归一化补写的派生字段——INFO 视图里只展示后端原始形状，避免重复噪音。 */
@@ -57,6 +64,25 @@ export function AuthFileDetailsSheet(props: AuthFileDetailsSheetProps) {
   const { disableControls, editor, updatedText, dirty, onClose, onCopyText, onSave, onChange } =
     props;
   const showConfirmation = useNotificationStore((state) => state.showConfirmation);
+  const showNotification = useNotificationStore((state) => state.showNotification);
+  const showSubscription = Boolean(editor && isClaudeAuthFile({ type: editor.providerKey }));
+  const subscriptionPreview = useMemo(
+    () => (editor && showSubscription ? computeSubscriptionPeriod(editor.subscription) : null),
+    [editor, showSubscription]
+  );
+  const subscriptionInvalid = Boolean(editor?.subscriptionTouched && editor.subscriptionError);
+
+  const handleSubscriptionFromNote = useCallback(() => {
+    if (!editor) return;
+    const sources = [editor.note, typeof editor.json?.note === 'string' ? editor.json.note : ''];
+    const date = sources.map(parseSubscriptionDateFromNote).find(Boolean);
+    if (!date) {
+      showNotification(t('auth_files.subscription_from_note_none'), 'warning');
+      return;
+    }
+    onChange('subscriptionStart', date);
+    showNotification(t('auth_files.subscription_from_note_done', { date }), 'success');
+  }, [editor, onChange, showNotification, t]);
 
   const confirmClose = useCallback((): boolean | Promise<boolean> => {
     if (!dirty || editor?.saving === true) return true;
@@ -157,6 +183,7 @@ export function AuthFileDetailsSheet(props: AuthFileDetailsSheetProps) {
               !editor?.json ||
               Boolean(editor?.headersTouched && editor.headersError) ||
               Boolean(editor?.weightError) ||
+              subscriptionInvalid ||
               Boolean(credentialPolicyError(editor?.policy))
             }
           >
@@ -318,6 +345,89 @@ export function AuthFileDetailsSheet(props: AuthFileDetailsSheetProps) {
                     disabled={disableControls || editor.saving || !editor.json}
                     onChange={(e) => onChange('note', e.target.value)}
                   />
+                  {showSubscription && subscriptionPreview && (
+                    <section
+                      className={styles.subscription}
+                      aria-label={t('auth_files.subscription_section')}
+                    >
+                      <div className={styles.subscriptionHead}>
+                        <span className={styles.label}>{t('auth_files.subscription_section')}</span>
+                        <AuthFileSubscriptionBadge period={subscriptionPreview} />
+                      </div>
+                      <div className={styles.subscriptionGrid}>
+                        <Input
+                          type="date"
+                          label={t('auth_files.subscription_start_label')}
+                          value={editor.subscription.start}
+                          disabled={disableControls || editor.saving}
+                          onChange={(e) => onChange('subscriptionStart', e.target.value)}
+                        />
+                        <div className="form-group">
+                          <label>{t('auth_files.subscription_cycle_label')}</label>
+                          <Select
+                            value={editor.subscription.cycle}
+                            options={[
+                              {
+                                value: 'monthly',
+                                label: t('auth_files.subscription_cycle_monthly'),
+                              },
+                              {
+                                value: 'annual',
+                                label: t('auth_files.subscription_cycle_annual'),
+                              },
+                            ]}
+                            onChange={(value) => onChange('subscriptionCycle', value)}
+                            disabled={disableControls || editor.saving}
+                            ariaLabel={t('auth_files.subscription_cycle_label')}
+                            fullWidth
+                          />
+                        </div>
+                        <Input
+                          type="date"
+                          label={t('auth_files.subscription_end_label')}
+                          value={editor.subscription.end}
+                          min={editor.subscription.start || undefined}
+                          disabled={disableControls || editor.saving}
+                          onChange={(e) => onChange('subscriptionEnd', e.target.value)}
+                        />
+                        <div className="form-group">
+                          <label>{t('auth_files.subscription_auto_renew_label')}</label>
+                          <ToggleSwitch
+                            checked={editor.subscription.autoRenew}
+                            onChange={(value) => onChange('subscriptionAutoRenew', value)}
+                            disabled={disableControls || editor.saving}
+                            ariaLabel={t('auth_files.subscription_auto_renew_label')}
+                          />
+                        </div>
+                      </div>
+                      {subscriptionInvalid && (
+                        <div className="error-box">{editor.subscriptionError}</div>
+                      )}
+                      <div className={styles.subscriptionActions}>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={handleSubscriptionFromNote}
+                          disabled={disableControls || editor.saving}
+                        >
+                          {t('auth_files.subscription_from_note')}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => onChange('subscriptionClear', true)}
+                          disabled={
+                            disableControls ||
+                            editor.saving ||
+                            (!editor.subscription.start && !editor.subscription.end)
+                          }
+                        >
+                          {t('auth_files.subscription_clear')}
+                        </Button>
+                      </div>
+                      <div className="hint">{t('auth_files.subscription_hint')}</div>
+                    </section>
+                  )}
                 </div>
               )}
             </>

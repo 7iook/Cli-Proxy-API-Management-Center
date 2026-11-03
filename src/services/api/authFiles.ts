@@ -16,6 +16,7 @@ import {
 } from '@/utils/recentRequests';
 import { parseTimestampMs } from '@/utils/timestamp';
 import { normalizeAuthFileCooldowns, normalizeCooldownTimestamp } from './authFileCooldowns';
+import { readAuthFileSubscription, type SubscriptionPatchValue } from './authFileSubscription';
 
 type AuthFilesListObserver = (files: AuthFilesResponse['files']) => void;
 let authFilesListObserver: AuthFilesListObserver | null = null;
@@ -67,6 +68,8 @@ export type AuthFileFieldsPatch = {
   expired?: string;
   /** Manual order rank; null removes it. */
   'ui.order'?: number | null;
+  /** Claude subscription; null deletes it. */
+  subscription?: SubscriptionPatchValue | null;
 };
 type AuthFileBatchFailure = { name: string; error: string };
 type AuthFileBatchUploadResponse = {
@@ -312,6 +315,7 @@ const normalizeAuthFileEntry = (
   const priority = readIntegerField(entry['priority']);
   const weight = readIntegerField(entry['weight']);
   const ui = readUiMeta(entry.ui);
+  const subscription = readAuthFileSubscription(entry.subscription);
   const supportsQuota = readBooleanField(entry['supports_quota'] ?? entry.supportsQuota);
   const quotaProvider =
     readTextField(entry, 'quota_provider') || readTextField(entry, 'quotaProvider');
@@ -339,6 +343,7 @@ const normalizeAuthFileEntry = (
     weight,
     ...(note ? { note } : {}),
     ui,
+    subscription,
     ...(email ? { email } : {}),
     ...(projectId ? { projectId } : {}),
   };

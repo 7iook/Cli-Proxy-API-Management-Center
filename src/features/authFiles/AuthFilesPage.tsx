@@ -84,6 +84,7 @@ import {
   useQuotaStore,
   useThemeStore,
 } from '@/stores';
+import { isSubscriptionExpiring, subscriptionToday } from './subscription';
 import styles from './AuthFilesPage.module.scss';
 
 const SKELETON_CARD_COUNT = 6;
@@ -245,6 +246,7 @@ export function AuthFilesPage() {
   const problemOnly = statusFilterMode === 'problem';
   const disabledOnly = statusFilterMode === 'disabled';
   const enabledOnly = statusFilterMode === 'enabled';
+  const expiringOnly = statusFilterMode === 'expiring';
 
   useEffect(() => {
     setPageSizeInput(String(pageSize));
@@ -371,15 +373,18 @@ export function AuthFilesPage() {
     return Array.from(types);
   }, [files]);
 
+  // Beijing calendar day; a string, so the memo below only recomputes when the day changes.
+  const today = subscriptionToday();
   const filesMatchingStatusFilters = useMemo(
     () =>
       files.filter((file) => {
         if (enabledOnly && file.disabled === true) return false;
         if (disabledOnly && file.disabled !== true) return false;
         if (problemOnly && !isProblemAuthFile(file)) return false;
+        if (expiringOnly && !isSubscriptionExpiring(file, today)) return false;
         return true;
       }),
-    [disabledOnly, enabledOnly, files, problemOnly]
+    [disabledOnly, enabledOnly, expiringOnly, files, problemOnly, today]
   );
 
   const statusFilterOptions = useMemo(
@@ -389,6 +394,7 @@ export function AuthFilesPage() {
         { value: 'enabled', label: t('auth_files.problem_filter_enabled') },
         { value: 'disabled', label: t('auth_files.problem_filter_disabled') },
         { value: 'problem', label: t('auth_files.problem_filter_problem') },
+        { value: 'expiring', label: t('auth_files.problem_filter_expiring') },
       ] satisfies Array<{ value: AuthFilesStatusFilterMode; label: string }>,
     [t]
   );

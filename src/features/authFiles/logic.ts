@@ -14,6 +14,7 @@ import {
 } from './constants';
 import { deriveAuthFileIdentity } from './identity';
 import { sortByCustomOrder } from './customOrder';
+import { sortBySubscriptionExpiry } from './subscription';
 import type { AuthFilesSort } from '@/features/preferences/schema';
 import { getQuotaRankPlan } from '@/features/quota/constants';
 import {
@@ -113,6 +114,10 @@ export const sortAuthFiles = (
 ): AuthFileItem[] => {
   const { field, direction } = sort;
   const plan = getQuotaRankPlan(field);
+  if (field === 'expiry') {
+    // Soonest subscription expiry first; unset / non-Claude last in default order.
+    return sortBySubscriptionExpiry(sortAuthFiles(files, { field: 'default', direction: 'asc' }));
+  }
   if (field === 'custom' || plan) {
     // Both are layered over the default order, so ties and unranked items stay deterministic.
     const base = sortAuthFiles(files, { field: 'default', direction: 'asc' });

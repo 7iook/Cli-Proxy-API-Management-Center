@@ -44,6 +44,26 @@ export interface AuthFileUiMeta {
   order?: number;
 }
 
+export type AuthFileSubscriptionCycle = 'monthly' | 'annual';
+export type AuthFileSubscriptionState = 'active' | 'warning' | 'expired' | 'unset';
+
+/**
+ * Manually maintained Claude subscription (stored in the auth-file JSON).
+ * period/daysLeft/state are computed by the backend in Beijing time when present.
+ */
+export interface AuthFileSubscription {
+  /** Subscription (billing anchor) date, YYYY-MM-DD. */
+  start?: string;
+  cycle: AuthFileSubscriptionCycle;
+  autoRenew: boolean;
+  /** Manual expiry date overriding the computed period end. */
+  end?: string | null;
+  periodStart?: string;
+  periodEnd?: string;
+  daysLeft?: number;
+  state?: AuthFileSubscriptionState;
+}
+
 export interface AuthFileItem {
   name: string;
   siwcBindSupported?: boolean;
@@ -79,6 +99,8 @@ export interface AuthFileItem {
   note?: string;
   /** Display-only metadata: group id and manual order rank. */
   ui?: AuthFileUiMeta;
+  /** Claude only: manually maintained subscription, normalized from `subscription`. */
+  subscription?: AuthFileSubscription;
   success?: unknown;
   failed?: unknown;
   /** Cumulative success/failure counts normalized by the API boundary. */

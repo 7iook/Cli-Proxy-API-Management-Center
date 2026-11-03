@@ -36,6 +36,7 @@ import {
   isClaudeAuthFile,
   readStoredSubscription,
   sameSubscription,
+  splitSubscriptionValue,
   subscriptionDraftToPatch,
   validateSubscriptionDraft,
   type SubscriptionDraft,
@@ -65,6 +66,8 @@ export type PrefixProxyEditorField =
   | 'useSiwc'
   | 'note'
   | 'subscriptionStart'
+  | 'subscriptionStartTime'
+  | 'subscriptionEndTime'
   | 'subscriptionCycle'
   | 'subscriptionAutoRenew'
   | 'subscriptionEnd'
@@ -114,20 +117,26 @@ export type PrefixProxyEditorState = {
 
 export const EMPTY_SUBSCRIPTION_DRAFT: SubscriptionDraft = {
   start: '',
+  startTime: '',
   cycle: 'monthly',
   autoRenew: false,
   end: '',
+  endTime: '',
 };
 
 /** Raw file JSON `subscription` → editor draft. */
 export const readSubscriptionDraft = (json: Record<string, unknown>): SubscriptionDraft => {
   const stored = readStoredSubscription(json.subscription);
   if (!stored) return { ...EMPTY_SUBSCRIPTION_DRAFT };
+  const start = splitSubscriptionValue(stored.start);
+  const end = splitSubscriptionValue(stored.end);
   return {
-    start: stored.start,
+    start: start.date,
+    startTime: start.time,
     cycle: stored.cycle,
     autoRenew: stored.auto_renew,
-    end: stored.end ?? '',
+    end: end.date,
+    endTime: end.time,
   };
 };
 
@@ -230,8 +239,17 @@ const applySubscriptionField = (
   value: PrefixProxyEditorFieldValue
 ): SubscriptionDraft => {
   if (field === 'subscriptionClear') return { ...EMPTY_SUBSCRIPTION_DRAFT };
-  if (field === 'subscriptionStart') return { ...draft, start: String(value) };
-  if (field === 'subscriptionEnd') return { ...draft, end: String(value) };
+  // Clearing a date also clears its optional time.
+  if (field === 'subscriptionStart') {
+    const start = String(value);
+    return { ...draft, start, startTime: start ? draft.startTime : '' };
+  }
+  if (field === 'subscriptionEnd') {
+    const end = String(value);
+    return { ...draft, end, endTime: end ? draft.endTime : '' };
+  }
+  if (field === 'subscriptionStartTime') return { ...draft, startTime: String(value) };
+  if (field === 'subscriptionEndTime') return { ...draft, endTime: String(value) };
   if (field === 'subscriptionAutoRenew') return { ...draft, autoRenew: Boolean(value) };
   if (field === 'subscriptionCycle') {
     return { ...draft, cycle: value === 'annual' ? 'annual' : 'monthly' };
@@ -797,6 +815,8 @@ export function useAuthFilesPrefixProxyEditor(
       if (field === 'note') return { ...prev, note: String(value), noteTouched: true };
       if (
         field === 'subscriptionStart' ||
+        field === 'subscriptionStartTime' ||
+        field === 'subscriptionEndTime' ||
         field === 'subscriptionCycle' ||
         field === 'subscriptionAutoRenew' ||
         field === 'subscriptionEnd' ||

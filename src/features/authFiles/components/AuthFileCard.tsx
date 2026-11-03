@@ -227,19 +227,23 @@ export function AuthFileCard(props: AuthFileCardProps) {
         </p>
       )}
 
-      {group && (
-        <p className={styles.groupBadge} title={group.name}>
-          <span className={styles.groupDot} aria-hidden="true" />
-          <span className={styles.groupName}>{group.name}</span>
-        </p>
-      )}
-
-      {subscriptionPeriod && (
-        <AuthFileSubscriptionBadge
-          period={subscriptionPeriod}
-          onClick={isRuntimeOnly ? undefined : () => onOpenPrefixProxyEditor(file)}
-          disabled={disableControls}
-        />
+      {(group || subscriptionPeriod) && (
+        // Group badge first, subscription validity inline after it; alone on the row without a group.
+        <div className={styles.badgeRow}>
+          {group && (
+            <p className={styles.groupBadge} title={group.name}>
+              <span className={styles.groupDot} aria-hidden="true" />
+              <span className={styles.groupName}>{group.name}</span>
+            </p>
+          )}
+          {subscriptionPeriod && (
+            <AuthFileSubscriptionBadge
+              period={subscriptionPeriod}
+              onClick={isRuntimeOnly ? undefined : () => onOpenPrefixProxyEditor(file)}
+              disabled={disableControls}
+            />
+          )}
+        </div>
       )}
 
       {!compact && noteValue && (

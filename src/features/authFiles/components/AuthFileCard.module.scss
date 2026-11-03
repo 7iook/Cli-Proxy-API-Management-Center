@@ -54,6 +54,22 @@
   pointer-events: none;
 }
 
+.badgeRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  min-width: 0;
+
+  > * {
+    min-width: 0;
+  }
+
+  .groupBadge {
+    align-self: center;
+  }
+}
+
 .groupBadge {
   display: inline-flex;
   align-items: center;

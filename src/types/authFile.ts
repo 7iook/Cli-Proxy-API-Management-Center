@@ -52,15 +52,20 @@ export type AuthFileSubscriptionState = 'active' | 'warning' | 'expired' | 'unse
  * period/daysLeft/state are computed by the backend in Beijing time when present.
  */
 export interface AuthFileSubscription {
-  /** Subscription (billing anchor) date, YYYY-MM-DD. */
+  /** Subscription (billing anchor), `YYYY-MM-DD` (00:00) or `YYYY-MM-DD HH:mm`, Beijing time. */
   start?: string;
   cycle: AuthFileSubscriptionCycle;
   autoRenew: boolean;
-  /** Manual expiry date overriding the computed period end. */
+  /** Manual expiry (`YYYY-MM-DD` or `YYYY-MM-DD HH:mm`) overriding the computed period end. */
   end?: string | null;
+  /** Backend echo, `YYYY-MM-DD HH:mm` (Beijing time). */
   periodStart?: string;
   periodEnd?: string;
   daysLeft?: number;
+  /** Seconds until expiry when the list was built (negative once expired). */
+  secondsLeft?: number;
+  /** Expiry instant, RFC 3339 with +08:00. */
+  expiresAt?: string;
   state?: AuthFileSubscriptionState;
 }
 

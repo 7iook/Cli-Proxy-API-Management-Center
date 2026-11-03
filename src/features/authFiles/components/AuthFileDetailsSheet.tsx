@@ -27,6 +27,7 @@ import {
   computeSubscriptionPeriod,
   isClaudeAuthFile,
   parseSubscriptionDateFromNote,
+  subscriptionDraftToInput,
 } from '../subscription';
 import styles from './AuthFileDetailsSheet.module.scss';
 
@@ -67,7 +68,10 @@ export function AuthFileDetailsSheet(props: AuthFileDetailsSheetProps) {
   const showNotification = useNotificationStore((state) => state.showNotification);
   const showSubscription = Boolean(editor && isClaudeAuthFile({ type: editor.providerKey }));
   const subscriptionPreview = useMemo(
-    () => (editor && showSubscription ? computeSubscriptionPeriod(editor.subscription) : null),
+    () =>
+      editor && showSubscription
+        ? computeSubscriptionPeriod(subscriptionDraftToInput(editor.subscription))
+        : null,
     [editor, showSubscription]
   );
   const subscriptionInvalid = Boolean(editor?.subscriptionTouched && editor.subscriptionError);
@@ -362,6 +366,32 @@ export function AuthFileDetailsSheet(props: AuthFileDetailsSheetProps) {
                           disabled={disableControls || editor.saving}
                           onChange={(e) => onChange('subscriptionStart', e.target.value)}
                         />
+                        <Input
+                          type="time"
+                          step={60}
+                          label={t('auth_files.subscription_start_time_label')}
+                          value={editor.subscription.startTime}
+                          hint={t('auth_files.subscription_time_hint')}
+                          disabled={disableControls || editor.saving || !editor.subscription.start}
+                          onChange={(e) => onChange('subscriptionStartTime', e.target.value)}
+                        />
+                        <Input
+                          type="date"
+                          label={t('auth_files.subscription_end_label')}
+                          value={editor.subscription.end}
+                          min={editor.subscription.start || undefined}
+                          disabled={disableControls || editor.saving}
+                          onChange={(e) => onChange('subscriptionEnd', e.target.value)}
+                        />
+                        <Input
+                          type="time"
+                          step={60}
+                          label={t('auth_files.subscription_end_time_label')}
+                          value={editor.subscription.endTime}
+                          hint={t('auth_files.subscription_time_hint')}
+                          disabled={disableControls || editor.saving || !editor.subscription.end}
+                          onChange={(e) => onChange('subscriptionEndTime', e.target.value)}
+                        />
                         <div className="form-group">
                           <label>{t('auth_files.subscription_cycle_label')}</label>
                           <Select
@@ -382,14 +412,6 @@ export function AuthFileDetailsSheet(props: AuthFileDetailsSheetProps) {
                             fullWidth
                           />
                         </div>
-                        <Input
-                          type="date"
-                          label={t('auth_files.subscription_end_label')}
-                          value={editor.subscription.end}
-                          min={editor.subscription.start || undefined}
-                          disabled={disableControls || editor.saving}
-                          onChange={(e) => onChange('subscriptionEnd', e.target.value)}
-                        />
                         <div className="form-group">
                           <label>{t('auth_files.subscription_auto_renew_label')}</label>
                           <ToggleSwitch
@@ -419,7 +441,10 @@ export function AuthFileDetailsSheet(props: AuthFileDetailsSheetProps) {
                           disabled={
                             disableControls ||
                             editor.saving ||
-                            (!editor.subscription.start && !editor.subscription.end)
+                            (!editor.subscription.start &&
+                              !editor.subscription.end &&
+                              !editor.subscription.startTime &&
+                              !editor.subscription.endTime)
                           }
                         >
                           {t('auth_files.subscription_clear')}

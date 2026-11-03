@@ -9,23 +9,33 @@ import type {
   AuthFileSubscriptionState,
 } from '@/types/authFile';
 
-const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+/** `YYYY-MM-DD`, optionally followed by ` HH:mm` or `THH:mm` (Asia/Shanghai wall clock). */
+const VALUE_RE = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?$/;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
 const daysInMonth = (y: number, m: number): number => new Date(Date.UTC(y, m, 0)).getUTCDate();
 
-/** `YYYY-MM-DD` when it names a real calendar day, otherwise null. */
+/**
+ * Canonical subscription value, or null when invalid:
+ * `YYYY-MM-DD` stays date-only (00:00), `YYYY-MM-DD HH:mm` / `YYYY-MM-DDTHH:mm`
+ * becomes `YYYY-MM-DD HH:mm` (minute precision, Asia/Shanghai).
+ */
 export const normalizeSubscriptionDate = (value: unknown): string | null => {
   if (typeof value !== 'string') return null;
-  const match = DATE_RE.exec(value.trim());
+  const match = VALUE_RE.exec(value.trim());
   if (!match) return null;
   const y = Number(match[1]);
   const m = Number(match[2]);
   const d = Number(match[3]);
   if (y < 1970 || m < 1 || m > 12 || d < 1 || d > daysInMonth(y, m)) return null;
-  return match[0];
+  const date = `${match[1]}-${match[2]}-${match[3]}`;
+  if (match[4] === undefined) return date;
+  const hh = Number(match[4]);
+  const mm = Number(match[5]);
+  if (hh > 23 || mm > 59) return null;
+  return `${date} ${match[4]}:${match[5]}`;
 };
 
 export const normalizeSubscriptionCycle = (value: unknown): AuthFileSubscriptionCycle =>
@@ -56,6 +66,16 @@ export const readAuthFileSubscription = (value: unknown): AuthFileSubscription |
   const periodEnd = normalizeSubscriptionDate(value.period_end ?? value.periodEnd) ?? undefined;
   const daysLeft =
     typeof daysRaw === 'number' && Number.isFinite(daysRaw) ? Math.trunc(daysRaw) : undefined;
+  const secondsRaw = value.seconds_left ?? value.secondsLeft;
+  const secondsLeft =
+    typeof secondsRaw === 'number' && Number.isFinite(secondsRaw)
+      ? Math.trunc(secondsRaw)
+      : undefined;
+  const expiresRaw = value.expires_at ?? value.expiresAt;
+  const expiresAt =
+    typeof expiresRaw === 'string' && Number.isFinite(Date.parse(expiresRaw))
+      ? expiresRaw
+      : undefined;
   const state = normalizeState(value.state);
   if (!start && !end && !state) return undefined;
   return {
@@ -66,6 +86,8 @@ export const readAuthFileSubscription = (value: unknown): AuthFileSubscription |
     ...(periodStart ? { periodStart } : {}),
     ...(periodEnd ? { periodEnd } : {}),
     ...(daysLeft !== undefined ? { daysLeft } : {}),
+    ...(secondsLeft !== undefined ? { secondsLeft } : {}),
+    ...(expiresAt ? { expiresAt } : {}),
     ...(state ? { state } : {}),
   };
 };

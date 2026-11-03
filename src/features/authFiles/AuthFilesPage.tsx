@@ -84,7 +84,7 @@ import {
   useQuotaStore,
   useThemeStore,
 } from '@/stores';
-import { isSubscriptionExpiring, subscriptionToday } from './subscription';
+import { isSubscriptionExpiring } from './subscription';
 import styles from './AuthFilesPage.module.scss';
 
 const SKELETON_CARD_COUNT = 6;
@@ -373,18 +373,17 @@ export function AuthFilesPage() {
     return Array.from(types);
   }, [files]);
 
-  // Beijing calendar day; a string, so the memo below only recomputes when the day changes.
-  const today = subscriptionToday();
+  // Expiry is checked against the current time whenever the list or filters change.
   const filesMatchingStatusFilters = useMemo(
     () =>
       files.filter((file) => {
         if (enabledOnly && file.disabled === true) return false;
         if (disabledOnly && file.disabled !== true) return false;
         if (problemOnly && !isProblemAuthFile(file)) return false;
-        if (expiringOnly && !isSubscriptionExpiring(file, today)) return false;
+        if (expiringOnly && !isSubscriptionExpiring(file)) return false;
         return true;
       }),
-    [disabledOnly, enabledOnly, expiringOnly, files, problemOnly, today]
+    [disabledOnly, enabledOnly, expiringOnly, files, problemOnly]
   );
 
   const statusFilterOptions = useMemo(

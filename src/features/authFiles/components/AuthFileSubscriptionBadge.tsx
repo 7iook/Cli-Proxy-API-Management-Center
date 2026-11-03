@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next';
+import { IconCalendar } from '@/components/ui/icons';
 import {
   describeSubscriptionBadge,
   type SubscriptionPeriod,
@@ -7,18 +8,24 @@ import styles from './AuthFileSubscriptionBadge.module.scss';
 
 export type AuthFileSubscriptionBadgeProps = {
   period: SubscriptionPeriod;
-  /** When provided the pill becomes a button (e.g. opens the editor). */
+  /** When provided the badge becomes a button (e.g. opens the editor). */
   onClick?: () => void;
   disabled?: boolean;
   className?: string;
 };
 
-/** Claude subscription validity pill: green / amber (≤7 days, today) / red / grey (unset). */
+/**
+ * Claude subscription validity row (cockpit-tools style):
+ * calendar icon + 订阅有效期 + coloured remaining (N天 / N小时 / 今天到期 / 已过期) + exact expiry.
+ * Tones: green / amber (≤7 days, under a day) / red / grey (unset).
+ */
 export function AuthFileSubscriptionBadge(props: AuthFileSubscriptionBadgeProps) {
   const { period, onClick, disabled, className } = props;
   const { t } = useTranslation();
   const badge = describeSubscriptionBadge(period);
-  const label = t(badge.labelKey, badge.labelParams);
+  const isUnset = badge.tier === 'unset';
+  const title = t('auth_files.subscription_badge_title');
+  const remaining = t(badge.remainingKey, badge.remainingParams);
   const cycle = t(
     period.cycle === 'annual'
       ? 'auth_files.subscription_cycle_annual'
@@ -28,10 +35,21 @@ export function AuthFileSubscriptionBadge(props: AuthFileSubscriptionBadgeProps)
     ? t(badge.tooltipKey, { ...badge.tooltipParams, cycle })
     : t('auth_files.subscription_badge_unset_hint');
   const classes = [styles.badge, styles[badge.tone], className ?? ''].filter(Boolean).join(' ');
+  const label = isUnset ? remaining : `${title} ${remaining} ${badge.expiresText}`.trim();
   const content = (
     <>
-      <span className={styles.dot} aria-hidden="true" />
-      <span>{label}</span>
+      <IconCalendar className={styles.icon} size={12} />
+      {isUnset ? (
+        <span className={styles.title}>{remaining}</span>
+      ) : (
+        <>
+          <span className={styles.main}>
+            <span className={styles.title}>{title}</span>
+            <span className={styles.remaining}>{remaining}</span>
+          </span>
+          {badge.expiresText && <span className={styles.expires}>{badge.expiresText}</span>}
+        </>
+      )}
     </>
   );
 

@@ -60,7 +60,16 @@ export interface AnthropicResetGrantStatus {
   cooldownUntil: string | null;
 }
 
-export type AnthropicResetGrantErrorCode = 'auth' | 'upstream' | 'malformed' | 'rate_limited';
+/**
+ * `absent`: a successful usage answer with no `cedar_ember` block at all, as
+ * CPA's header-derived usage for setup-token credentials. No reset data exists.
+ */
+export type AnthropicResetGrantErrorCode =
+  | 'auth'
+  | 'upstream'
+  | 'malformed'
+  | 'rate_limited'
+  | 'absent';
 
 /** A read failure. `message` is fixed text; upstream detail is never attached. */
 export class AnthropicResetGrantError extends Error {
@@ -256,6 +265,7 @@ async function readAccount(authIndex: string, path: string): Promise<Record<stri
 
 export async function readClaudeResetGrants(authIndex: string) {
   const body = await readAccount(authIndex, ANTHROPIC_RESET_GRANT_STATUS_PATH);
+  if (!('cedar_ember' in body)) throw new AnthropicResetGrantError('absent');
   const status = parseAnthropicResetGrantStatus(body.cedar_ember);
   if (!status) throw new AnthropicResetGrantError('malformed');
   return status;

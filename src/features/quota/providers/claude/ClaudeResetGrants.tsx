@@ -41,6 +41,8 @@ export function useClaudeResetGrants(
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [reload, setReload] = useState(0);
+  // The usage answer carried no reset data (setup-token header snapshot): hide it.
+  const [absent, setAbsent] = useState(false);
   const lock = useRef(false);
   const generation = useRef(0);
   useEffect(() => {
@@ -55,11 +57,18 @@ export function useClaudeResetGrants(
         (result) => {
           if (current()) {
             setStatus(result);
+            setAbsent(false);
             setMessage('');
           }
         },
         (error: unknown) => {
           if (current()) {
+            const missing = error instanceof AnthropicResetGrantError && error.code === 'absent';
+            setAbsent(missing);
+            if (missing) {
+              setMessage('');
+              return;
+            }
             setMessage(
               error instanceof AnthropicResetGrantError && error.code === 'rate_limited'
                 ? 'rate_limited'
@@ -145,5 +154,6 @@ export function useClaudeResetGrants(
     confirm,
     message: pending ? (expired ? 'expired' : 'unknown') : message,
     buttonLabel: pending ? 'retry' : 'use',
+    available: Boolean(pending) || !absent,
   };
 }

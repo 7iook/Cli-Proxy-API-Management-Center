@@ -1,9 +1,6 @@
 /**
  * Provider quota card: identity, loading/error state, quota body, and actions.
  * Claude observations remain visible while refreshing or after a failed read.
- *
- * The card surface follows the plan tier (cardTier.ts); see the tier section
- * of QuotaCard.module.scss for the materials.
  */
 
 import { QuotaCachedLabel } from './QuotaCachedLabel';
@@ -22,7 +19,6 @@ import {
   isThemeSurfaceIconProvider,
 } from '@/features/authFiles/constants';
 import { bindQuotaClasses } from '../types';
-import { resolveInitialQuotaCardTier, resolveQuotaCardTier, type QuotaCardTier } from '../cardTier';
 import { QUOTA_ADAPTERS, type QuotaCardState } from '../providers';
 import { isQuotaRefreshDisabled, type QuotaFileEntry } from '../logic';
 import { useClaudeResetGrants } from '../providers/claude/ClaudeResetGrants';
@@ -33,12 +29,6 @@ import styles from './QuotaCard.module.scss';
 
 /** Bind the quota-page styles to the shared rendering contract. */
 const quotaClasses = bindQuotaClasses(bodyStyles, 'QuotaBody.module.scss');
-
-const TIER_CLASS: Record<QuotaCardTier, string | undefined> = {
-  standard: undefined,
-  premium: styles.premium,
-  flagship: styles.flagship,
-};
 
 export type QuotaCardProps = {
   entry: QuotaFileEntry;
@@ -85,16 +75,6 @@ export function QuotaCard(props: QuotaCardProps) {
 
   const status = quota?.status ?? 'idle';
   const loading = status === 'loading';
-
-  // Loading/error states drop the plan, so the last known tier is kept: a
-  // refresh must not flash the suite back to a standard card.
-  const arrivedTier = resolveQuotaCardTier(entry.type, quota);
-  const [tier, setTier] = useState<QuotaCardTier>(
-    () => arrivedTier ?? resolveInitialQuotaCardTier(entry.type, file)
-  );
-  if (arrivedTier !== null && arrivedTier !== tier) {
-    setTier(arrivedTier);
-  }
   const claudeReset = useClaudeResetGrants(
     file,
     entry.type === 'claude' && status !== 'idle',
@@ -144,13 +124,11 @@ export function QuotaCard(props: QuotaCardProps) {
       className={[
         styles.card,
         compact ? styles.cardCompact : undefined,
-        TIER_CLASS[tier],
         mountEntranceDelayMs === null ? undefined : styles.cardEnter,
       ]
         .filter(Boolean)
         .join(' ')}
       style={entranceStyle}
-      data-tier={tier}
     >
       <header className={styles.head}>
         <span
